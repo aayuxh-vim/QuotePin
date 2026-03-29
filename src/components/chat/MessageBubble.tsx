@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { User, Bot } from "lucide-react";
+import { User, Bot, Sparkles } from "lucide-react";
 import type { Annotation } from "@/lib/types";
 import AnnotationBadge from "./AnnotationBadge";
 
@@ -80,7 +80,22 @@ export default function MessageBubble({
       const rect = range.getBoundingClientRect();
       sel.removeAllRanges();
       onTextSelect(text, rect, content);
+      if (!hintDismissed) dismissHint();
     }
+  }
+
+  const [hintDismissed, setHintDismissed] = useState(true);
+
+  useEffect(() => {
+    if (isUser) return;
+    try {
+      setHintDismissed(localStorage.getItem("ard-hint-dismissed") === "true");
+    } catch {}
+  }, [isUser]);
+
+  function dismissHint() {
+    setHintDismissed(true);
+    try { localStorage.setItem("ard-hint-dismissed", "true"); } catch {}
   }
 
   return (
@@ -90,23 +105,35 @@ export default function MessageBubble({
           <Bot size={15} className="text-annotation" />
         </div>
       )}
-      <div
-        className={`max-w-[75%] ${
-          isUser
-            ? "bg-primary text-primary-foreground px-4 py-2.5 rounded-2xl rounded-br-md"
-            : "flex-1 max-w-3xl"
-        }`}
-        onMouseUp={handleMouseUp}
-        data-message-id={messageId}
-      >
-        {isUser ? (
-          <p className="text-sm whitespace-pre-wrap">{content}</p>
-        ) : annotations.length > 0 ? (
-          annotatedContent
-        ) : (
-          <div className="markdown-body text-sm">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
-          </div>
+      <div className={`${isUser ? "max-w-[75%]" : "flex-1 max-w-3xl"}`}>
+        <div
+          className={
+            isUser
+              ? "bg-primary text-primary-foreground px-4 py-2.5 rounded-2xl rounded-br-md"
+              : ""
+          }
+          onMouseUp={handleMouseUp}
+          data-message-id={messageId}
+        >
+          {isUser ? (
+            <p className="text-sm whitespace-pre-wrap">{content}</p>
+          ) : annotations.length > 0 ? (
+            annotatedContent
+          ) : (
+            <div className="markdown-body text-sm">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+            </div>
+          )}
+        </div>
+        {!isUser && !hintDismissed && (
+          <button
+            onClick={dismissHint}
+            className="mt-1.5 flex items-center gap-1.5 text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors group"
+          >
+            <Sparkles size={11} className="text-annotation/50 group-hover:text-annotation transition-colors" />
+            <span>Select any text above to ask about it</span>
+            <span className="opacity-0 group-hover:opacity-100 transition-opacity ml-0.5">· dismiss</span>
+          </button>
         )}
       </div>
       {isUser && (
