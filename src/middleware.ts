@@ -5,8 +5,9 @@ import { Redis } from "@upstash/redis";
 const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
 const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
 
-// Edge runtime safe client (uses fetch). Only enabled when env vars are present.
-const redis = redisUrl && redisToken ? Redis.fromEnv() : null;
+// Edge runtime safe client (HTTP + fetch). Only enabled when env vars are present.
+const redis =
+  redisUrl && redisToken ? new Redis({ url: redisUrl, token: redisToken }) : null;
 
 function getIp(req: NextRequest) {
   const xff = req.headers.get("x-forwarded-for");
