@@ -70,6 +70,8 @@ export default function ChatArea({
 
   const [chatError, setChatError] = useState<string | null>(null);
   const [shareStatus, setShareStatus] = useState<"idle" | "copied" | "error">("idle");
+  const [shareEnabled, setShareEnabled] = useState<boolean>(false);
+  const [shareToken, setShareToken] = useState<string | null>(null);
 
   const {
     messages,
@@ -129,7 +131,24 @@ export default function ChatArea({
     setAnnotationsMap(annMap);
     setSelection(null);
     setAnnotationPopup(null);
+    setShareEnabled(false);
+    setShareToken(null);
   }, [conversationId, initialMessages, setMessages]);
+
+  useEffect(() => {
+    (async () => {
+      if (!currentConvoId) return;
+      try {
+        const res = await fetch(`/api/conversations/${currentConvoId}/share`, { method: "GET" });
+        if (!res.ok) return;
+        const data = await res.json();
+        setShareEnabled(!!data.shareEnabled);
+        setShareToken(data.shareToken || null);
+      } catch {
+        // ignore
+      }
+    })();
+  }, [currentConvoId]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -340,23 +359,40 @@ export default function ChatArea({
             onClick={async () => {
               try {
                 setShareStatus("idle");
-                const res = await fetch(`/api/conversations/${currentConvoId}/share`, { method: "POST" });
-                if (!res.ok) throw new Error("Failed to enable sharing");
-                const data = await res.json();
-                const url = `${window.location.origin}/share/${data.shareToken}`;
-                await navigator.clipboard.writeText(url);
-                setShareStatus("copied");
-                setTimeout(() => setShareStatus("idle"), 1500);
+                if (shareEnabled) {
+                  const res = await fetch(`/api/conversations/${currentConvoId}/share`, { method: "DELETE" });
+                  if (!res.ok) throw new Error("Failed to disable sharing");
+                  setShareEnabled(false);
+                  setShareToken(null);
+                  setShareStatus("copied");
+                  setTimeout(() => setShareStatus("idle"), 1500);
+                } else {
+                  const res = await fetch(`/api/conversations/${currentConvoId}/share`, { method: "POST" });
+                  if (!res.ok) throw new Error("Failed to enable sharing");
+                  const data = await res.json();
+                  setShareEnabled(true);
+                  setShareToken(data.shareToken);
+                  const url = `${window.location.origin}/share/${data.shareToken}`;
+                  await navigator.clipboard.writeText(url);
+                  setShareStatus("copied");
+                  setTimeout(() => setShareStatus("idle"), 1500);
+                }
               } catch {
                 setShareStatus("error");
                 setTimeout(() => setShareStatus("idle"), 1500);
               }
             }}
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-            title="Copy share link"
+            title={shareEnabled ? "Disable sharing" : "Enable sharing and copy link"}
           >
             {shareStatus === "copied" ? <Check size={13} /> : <Share2 size={13} />}
-            {shareStatus === "copied" ? "Copied" : "Share"}
+            {shareStatus === "copied"
+              ? shareEnabled
+                ? "Disabled"
+                : "Copied"
+              : shareEnabled
+                ? "Disable share"
+                : "Share"}
           </button>
         )}
         {currentConvoId && (

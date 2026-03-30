@@ -29,6 +29,23 @@ export async function POST(
   return NextResponse.json({ shareToken });
 }
 
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const userId = await requireUserId();
+  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { id } = await params;
+  const convo = await prisma.conversation.findUnique({
+    where: { id, ownerId: userId },
+    select: { shareEnabled: true, shareToken: true },
+  });
+
+  if (!convo) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  return NextResponse.json(convo);
+}
+
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }

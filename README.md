@@ -63,6 +63,10 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000). Click the gear icon to configure your API provider and key.
 
+## Deploy (Vercel)
+
+See `DEPLOYMENT.md`.
+
 ## Project Structure
 
 ```
