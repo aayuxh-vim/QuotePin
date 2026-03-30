@@ -70,12 +70,33 @@ export default function Home() {
         setAuthReady(true);
         return;
       }
+
+      // Handle Supabase PKCE redirect (e.g. email links) by exchanging `code` for a session.
+      // Without this, the app can land on `/?code=...` and still be unauthenticated.
+      try {
+        const url = new URL(window.location.href);
+        const code = url.searchParams.get("code");
+        if (code) {
+          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          if (!error) {
+            url.searchParams.delete("code");
+            window.history.replaceState({}, "", url.toString());
+          }
+        }
+      } catch {
+        // ignore
+      }
+
       const { data } = await supabase.auth.getSession();
       setUserEmail(data.session?.user?.email ?? null);
       setAuthReady(true);
-      supabase.auth.onAuthStateChange((_event, session) => {
+      const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
         setUserEmail(session?.user?.email ?? null);
       });
+
+      return () => {
+        sub.subscription.unsubscribe();
+      };
     })();
   }, [supabase]);
 
