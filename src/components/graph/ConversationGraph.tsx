@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
 import {
   ReactFlow,
   Background,
@@ -14,17 +14,32 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import dagre from "dagre";
-import { User, Bot, Sparkles } from "lucide-react";
-import type { Message, Annotation } from "@/lib/types";
+import { User, Bot, Sparkles, X } from "lucide-react";
+import type { Message } from "@/lib/types";
 
 interface Props {
   messages: Message[];
   title: string;
+  showAnnotations?: boolean;
 }
 
-function UserNode({ data }: { data: { label: string } }) {
+type MessageNodeData = { label: string; full: string; onOpen: () => void };
+type AnnotationNodeData = {
+  selectedText: string;
+  question: string;
+  answer: string;
+  expanded: boolean;
+  onToggle: () => void;
+  onOpen: () => void;
+};
+
+function UserNode({ data }: { data: MessageNodeData }) {
   return (
-    <div className="px-4 py-3 rounded-xl bg-primary text-primary-foreground shadow-lg max-w-[280px] border-2 border-primary">
+    <div
+      onClick={data.onOpen}
+      className="px-4 py-3 rounded-xl bg-primary text-primary-foreground shadow-lg max-w-[280px] border-2 border-primary cursor-pointer hover:opacity-95 transition-opacity"
+      title="Click to view full message"
+    >
       <Handle type="target" position={Position.Top} className="!bg-primary !w-2 !h-2" />
       <div className="flex items-start gap-2">
         <User size={14} className="flex-shrink-0 mt-0.5" />
@@ -35,9 +50,13 @@ function UserNode({ data }: { data: { label: string } }) {
   );
 }
 
-function AssistantNode({ data }: { data: { label: string } }) {
+function AssistantNode({ data }: { data: MessageNodeData }) {
   return (
-    <div className="px-4 py-3 rounded-xl bg-card text-card-foreground shadow-lg max-w-[280px] border-2 border-border">
+    <div
+      onClick={data.onOpen}
+      className="px-4 py-3 rounded-xl bg-card text-card-foreground shadow-lg max-w-[280px] border-2 border-border cursor-pointer hover:border-annotation/40 transition-colors"
+      title="Click to view full message"
+    >
       <Handle type="target" position={Position.Top} className="!bg-annotation !w-2 !h-2" />
       <div className="flex items-start gap-2">
         <Bot size={14} className="text-annotation flex-shrink-0 mt-0.5" />
@@ -49,11 +68,12 @@ function AssistantNode({ data }: { data: { label: string } }) {
   );
 }
 
-function AnnotationNode({ data }: { data: { selectedText: string; question: string; answer: string; expanded: boolean; onToggle: () => void } }) {
+function AnnotationNode({ data }: { data: AnnotationNodeData }) {
   return (
     <div
-      onClick={data.onToggle}
+      onClick={data.onOpen}
       className="px-3 py-2 rounded-lg bg-annotation-bg border-2 border-annotation/40 shadow-md max-w-[260px] cursor-pointer hover:border-annotation transition-colors"
+      title="Click to view full annotation"
     >
       <Handle type="target" position={Position.Left} className="!bg-annotation !w-2 !h-2" />
       <div className="flex items-start gap-1.5">
@@ -61,9 +81,16 @@ function AnnotationNode({ data }: { data: { selectedText: string; question: stri
         <div className="min-w-0">
           <p className="text-[10px] font-medium text-annotation truncate">&ldquo;{data.selectedText}&rdquo;</p>
           <p className="text-[10px] text-muted-foreground mt-0.5 italic">Q: {data.question}</p>
-          {data.expanded && (
-            <p className="text-[10px] mt-1 leading-relaxed line-clamp-6">{data.answer}</p>
-          )}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              data.onToggle();
+            }}
+            className="mt-1 text-[10px] text-annotation/80 hover:text-annotation underline underline-offset-2"
+          >
+            {data.expanded ? "Collapse preview" : "Preview answer"}
+          </button>
+          {data.expanded && <p className="text-[10px] mt-1 leading-relaxed line-clamp-6">{data.answer}</p>}
         </div>
       </div>
     </div>
@@ -109,8 +136,13 @@ function getLayoutedElements(nodes: Node[], edges: Edge[]) {
   return { nodes: layoutedNodes, edges };
 }
 
-export default function ConversationGraph({ messages, title }: Props) {
+export default function ConversationGraph({ messages, title, showAnnotations = true }: Props) {
   const [expandedAnnotations, setExpandedAnnotations] = useState<Set<string>>(new Set());
+  const [detail, setDetail] = useState<
+    | null
+    | { kind: "message"; role: "user" | "assistant"; content: string }
+    | { kind: "annotation"; selectedText: string; question: string; answer: string }
+  >(null);
 
   const toggleAnnotation = useCallback((id: string) => {
     setExpandedAnnotations((prev) => {
@@ -138,14 +170,22 @@ export default function ConversationGraph({ messages, title }: Props) {
           id: nodeId,
           type: "userMessage",
           position: { x: 0, y: 0 },
-          data: { label: contentPreview },
+          data: {
+            label: contentPreview,
+            full: msg.content,
+            onOpen: () => setDetail({ kind: "message", role: "user", content: msg.content }),
+          },
         });
       } else {
         nodes.push({
           id: nodeId,
           type: "assistantMessage",
           position: { x: 0, y: 0 },
-          data: { label: contentPreview },
+          data: {
+            label: contentPreview,
+            full: msg.content,
+            onOpen: () => setDetail({ kind: "message", role: "assistant", content: msg.content }),
+          },
         });
       }
 
@@ -160,7 +200,7 @@ export default function ConversationGraph({ messages, title }: Props) {
         });
       }
 
-      if (msg.role === "assistant" && msg.annotations?.length) {
+      if (showAnnotations && msg.role === "assistant" && msg.annotations?.length) {
         for (const ann of msg.annotations) {
           const annId = `ann-${ann.id}`;
           nodes.push({
@@ -173,6 +213,13 @@ export default function ConversationGraph({ messages, title }: Props) {
               answer: ann.answer,
               expanded: expandedAnnotations.has(annId),
               onToggle: () => toggleAnnotation(annId),
+              onOpen: () =>
+                setDetail({
+                  kind: "annotation",
+                  selectedText: ann.selectedText,
+                  question: ann.question,
+                  answer: ann.answer,
+                }),
             },
           });
           edges.push({
@@ -188,15 +235,22 @@ export default function ConversationGraph({ messages, title }: Props) {
     }
 
     return { initialNodes: nodes, initialEdges: edges };
-  }, [messages, expandedAnnotations, toggleAnnotation]);
+  }, [messages, expandedAnnotations, toggleAnnotation, showAnnotations]);
 
   const { nodes: layoutedNodes, edges: layoutedEdges } = useMemo(
     () => getLayoutedElements(initialNodes, initialEdges),
     [initialNodes, initialEdges]
   );
 
-  const [nodes, , onNodesChange] = useNodesState(layoutedNodes);
-  const [graphEdges, , onEdgesChange] = useEdgesState(layoutedEdges);
+  const [nodes, setNodes, onNodesChange] = useNodesState(layoutedNodes);
+  const [graphEdges, setGraphEdges, onEdgesChange] = useEdgesState(layoutedEdges);
+
+  // `useNodesState` / `useEdgesState` only use the initial values once.
+  // When the toggle changes, we recompute the graph and must sync state.
+  useEffect(() => {
+    setNodes(layoutedNodes);
+    setGraphEdges(layoutedEdges);
+  }, [layoutedNodes, layoutedEdges, setNodes, setGraphEdges]);
 
   return (
     <div className="w-full h-full">
@@ -215,6 +269,70 @@ export default function ConversationGraph({ messages, title }: Props) {
         <Background gap={20} size={1} />
         <Controls showInteractive={false} />
       </ReactFlow>
+
+      {detail && (
+        <div
+          className="fixed inset-0 z-[200] bg-black/40 backdrop-blur-[1px] flex items-center justify-center p-4"
+          onMouseDown={() => setDetail(null)}
+        >
+          <div
+            className="w-full max-w-2xl max-h-[75vh] bg-card border border-border rounded-xl shadow-2xl overflow-hidden"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/30">
+              {detail.kind === "message" ? (
+                detail.role === "user" ? (
+                  <User size={14} />
+                ) : (
+                  <Bot size={14} className="text-annotation" />
+                )
+              ) : (
+                <Sparkles size={14} className="text-annotation" />
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium truncate">
+                  {detail.kind === "message"
+                    ? detail.role === "user"
+                      ? "User message"
+                      : "Assistant message"
+                    : "Annotation"}
+                </p>
+                {detail.kind === "annotation" && (
+                  <p className="text-[11px] text-muted-foreground truncate">
+                    &ldquo;{detail.selectedText}&rdquo;
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => setDetail(null)}
+                className="p-1 rounded-md hover:bg-muted transition-colors"
+                title="Close"
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            <div className="p-4 overflow-y-auto max-h-[calc(75vh-44px)] scrollbar-thin">
+              {detail.kind === "message" ? (
+                <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans">
+                  {detail.content}
+                </pre>
+              ) : (
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-[11px] text-muted-foreground mb-1">Question</p>
+                    <p className="text-sm whitespace-pre-wrap">{detail.question}</p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] text-muted-foreground mb-1">Answer</p>
+                    <p className="text-sm whitespace-pre-wrap leading-relaxed">{detail.answer}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

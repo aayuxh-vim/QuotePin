@@ -129,3 +129,7 @@
 .scrollbar-thin::-webkit-scrollbar-thumb {
   @apply bg-border rounded-full;
 }
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  @apply bg-muted-foreground/40;
+}

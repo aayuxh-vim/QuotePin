@@ -3,18 +3,23 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model Conversation {
   id        String    @id @default(cuid())
+  ownerId   String
   title     String    @default("New Chat")
   provider  String    @default("openai")
   model     String    @default("gpt-4o-mini")
+  shareEnabled Boolean @default(false)
+  shareToken   String? @unique
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   messages  Message[]
+
+  @@index([ownerId])
 }
 
 model Message {
@@ -35,6 +40,9 @@ model Annotation {
   selectedText String
   startOffset  Int
   endOffset    Int
+  occurrence   Int      @default(0)
+  prefix       String   @default("")
+  suffix       String   @default("")
   question     String
   answer       String
   createdAt    DateTime @default(now())

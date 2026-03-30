@@ -6,13 +6,15 @@ import remarkGfm from "remark-gfm";
 import { User, Bot, Sparkles } from "lucide-react";
 import type { Annotation } from "@/lib/types";
 import AnnotationBadge from "./AnnotationBadge";
+import { resolveAnnotationAnchor } from "@/lib/annotation-anchor";
 
 interface Props {
   role: "user" | "assistant";
   content: string;
   annotations: Annotation[];
   onAnnotationClick: (annotation: Annotation, rect: DOMRect) => void;
-  onTextSelect: (text: string, rect: DOMRect, messageContent: string) => void;
+  onTextSelect: (text: string, rect: DOMRect, messageContent: string, occurrenceHint: number) => void;
+  onMobileAnnotate?: (messageId: string, messageContent: string) => void;
   messageId?: string;
 }
 
@@ -23,20 +25,46 @@ function renderContentWithAnnotations(
 ): React.ReactNode {
   if (!annotations.length) return null;
 
-  const sorted = [...annotations].sort((a, b) => a.startOffset - b.startOffset);
+  const resolved = annotations
+    .map((a) => ({
+      annotation: a,
+      anchor: resolveAnnotationAnchor({
+        content,
+        selectedText: a.selectedText,
+        startOffset: a.startOffset,
+        endOffset: a.endOffset,
+        occurrence: (a as any).occurrence,
+        prefix: (a as any).prefix,
+        suffix: (a as any).suffix,
+      }),
+    }))
+    // Only inline-embed anchors we can confidently place.
+    // If we can't resolve, we avoid injecting at the wrong spot (e.g. front).
+    .filter((x) => x.anchor.resolved && x.anchor.start >= 0 && x.anchor.end <= content.length)
+    .sort((a, b) => a.anchor.start - b.anchor.start);
+
   const parts: React.ReactNode[] = [];
   let lastEnd = 0;
 
-  for (const ann of sorted) {
-    if (ann.startOffset > lastEnd) {
+  for (const item of resolved) {
+    const ann = item.annotation;
+    const startOffset = item.anchor.start;
+    const endOffset = item.anchor.end;
+
+    if (startOffset > lastEnd) {
       parts.push(
-        <MarkdownSegment key={`text-${lastEnd}`} content={content.slice(lastEnd, ann.startOffset)} />
+        <MarkdownSegment key={`text-${lastEnd}`} content={content.slice(lastEnd, startOffset)} />
       );
     }
     parts.push(
-      <AnnotationBadge key={ann.id} annotation={ann} onClick={onAnnotationClick} />
+      <AnnotationBadge
+        key={ann.id}
+        annotation={ann}
+        displayText={content.slice(startOffset, endOffset)}
+        onClick={onAnnotationClick}
+      />
     );
-    lastEnd = ann.endOffset;
+    lastEnd = Math.max(lastEnd, endOffset);
   }
 
   if (lastEnd < content.length) {
@@ -62,6 +90,7 @@ export default function MessageBubble({
   annotations,
   onAnnotationClick,
   onTextSelect,
+  onMobileAnnotate,
   messageId,
 }: Props) {
   const isUser = role === "user";
@@ -78,13 +107,36 @@ export default function MessageBubble({
     if (text && text.length > 1 && sel?.rangeCount) {
       const range = sel.getRangeAt(0);
       const rect = range.getBoundingClientRect();
+      const root = range.commonAncestorContainer instanceof Element
+        ? (range.commonAncestorContainer as Element)
+        : range.commonAncestorContainer.parentElement;
+      const messageRoot = root?.closest?.("[data-message-id]") as HTMLElement | null;
+
+      let occurrenceHint = 0;
+      try {
+        // Approximate which occurrence the user selected by using the rendered plain text.
+        const rendered = (messageRoot?.innerText || "").replace(/\s+/g, " ");
+        const before = rendered.slice(0, Math.max(0, rendered.indexOf(text)));
+        if (before) {
+          let idx = 0;
+          let count = 0;
+          while (true) {
+            const found = rendered.indexOf(text, idx);
+            if (found === -1 || found >= before.length) break;
+            count += 1;
+            idx = found + text.length;
+          }
+          occurrenceHint = count;
+        }
+      } catch {}
       sel.removeAllRanges();
-      onTextSelect(text, rect, content);
+      onTextSelect(text, rect, content, occurrenceHint);
       if (!hintDismissed) dismissHint();
     }
   }
 
   const [hintDismissed, setHintDismissed] = useState(true);
+  const isTouch = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)")?.matches;
 
   useEffect(() => {
     if (isUser) return;
@@ -133,6 +185,17 @@ export default function MessageBubble({
             <Sparkles size={11} className="text-annotation/50 group-hover:text-annotation transition-colors" />
             <span>Select any text above to ask about it</span>
             <span className="opacity-0 group-hover:opacity-100 transition-opacity ml-0.5">· dismiss</span>
+          </button>
+        )}
+
+        {!isUser && isTouch && onMobileAnnotate && messageId && (
+          <button
+            onClick={() => onMobileAnnotate(messageId, content)}
+            className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs border border-input hover:bg-muted transition-colors text-muted-foreground"
+            title="Annotate without text selection"
+          >
+            <Sparkles size={13} className="text-annotation" />
+            Annotate
           </button>
         )}
       </div>

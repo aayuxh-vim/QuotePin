@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Loader2, GitFork } from "lucide-react";
+import { ArrowLeft, Loader2, GitFork, Eye, EyeOff, Sun, Moon } from "lucide-react";
 import ConversationGraph from "@/components/graph/ConversationGraph";
 import type { Conversation, Message } from "@/lib/types";
 
@@ -13,6 +13,33 @@ export default function GraphPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showAnnotations, setShowAnnotations] = useState(true);
+  const [isDark, setIsDark] = useState(true);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("ard-settings");
+      const theme = raw ? (JSON.parse(raw)?.theme as string | undefined) : undefined;
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const dark = theme === "dark" || (theme !== "light" && prefersDark);
+      setIsDark(dark);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  function applyTheme(theme: "light" | "dark") {
+    const root = document.documentElement;
+    root.classList.toggle("dark", theme === "dark");
+    setIsDark(theme === "dark");
+    try {
+      const raw = localStorage.getItem("ard-settings");
+      const prev = raw ? JSON.parse(raw) : {};
+      localStorage.setItem("ard-settings", JSON.stringify({ ...prev, theme }));
+    } catch {
+      // ignore
+    }
+  }
 
   useEffect(() => {
     async function load() {
@@ -64,6 +91,23 @@ export default function GraphPage() {
         <GitFork size={14} className="text-annotation" />
         <h1 className="text-sm font-semibold truncate">{conversation.title}</h1>
         <div className="flex-1" />
+        <button
+          onClick={() => applyTheme(isDark ? "light" : "dark")}
+          className="p-1.5 rounded-md hover:bg-muted transition-colors text-muted-foreground"
+          title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+        >
+          {isDark ? <Sun size={16} /> : <Moon size={16} />}
+        </button>
+        {hasAnnotations && (
+          <button
+            onClick={() => setShowAnnotations((v) => !v)}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            title={showAnnotations ? "Hide annotations" : "Show annotations"}
+          >
+            {showAnnotations ? <EyeOff size={14} /> : <Eye size={14} />}
+            {showAnnotations ? "Hide annotations" : "Show annotations"}
+          </button>
+        )}
         <span className="text-[10px] text-muted-foreground">
           {messages.length} messages
           {hasAnnotations && ` \u00b7 ${messages.reduce((sum, m) => sum + (m.annotations?.length || 0), 0)} annotations`}
@@ -76,7 +120,7 @@ export default function GraphPage() {
             <p className="text-sm text-muted-foreground">No messages in this conversation yet.</p>
           </div>
         ) : (
-          <ConversationGraph messages={messages} title={conversation.title} />
+          <ConversationGraph messages={messages} title={conversation.title} showAnnotations={showAnnotations} />
         )}
 
         {!hasAnnotations && messages.length > 0 && (

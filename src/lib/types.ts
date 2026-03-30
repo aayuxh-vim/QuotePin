@@ -4,6 +4,9 @@ export interface Annotation {
   selectedText: string;
   startOffset: number;
   endOffset: number;
+  occurrence: number;
+  prefix: string;
+  suffix: string;
   question: string;
   answer: string;
   createdAt: string;

@@ -2,11 +2,20 @@ import { streamText, APICallError } from "ai";
 import { getModel, type Provider } from "@/lib/ai";
 import { prisma } from "@/lib/db";
 import { NextRequest } from "next/server";
+import { requireUserId } from "@/lib/supabase/server";
 
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
+    const userId = await requireUserId();
+    if (!userId) {
+      return new Response(JSON.stringify({ error: "Unauthorized. Please sign in." }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
     const body = await req.json();
     const { messages, conversationId, provider, model, apiKey } = body;
 
@@ -43,9 +52,22 @@ export async function POST(req: NextRequest) {
 
     if (!convoId) {
       const convo = await prisma.conversation.create({
-        data: { provider, model },
+        data: { ownerId: userId, provider, model },
       });
       convoId = convo.id;
+    }
+    else {
+      // Ensure the conversation belongs to the current user.
+      const existing = await prisma.conversation.findUnique({
+        where: { id: convoId, ownerId: userId },
+        select: { id: true },
+      });
+      if (!existing) {
+        return new Response(JSON.stringify({ error: "Conversation not found." }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
     }
 
     const lastUserMsg = messages[messages.length - 1];

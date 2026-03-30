@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { PanelLeftClose } from "lucide-react";
 import Sidebar from "@/components/sidebar/Sidebar";
 import ChatArea from "@/components/chat/ChatArea";
 import SettingsModal from "@/components/settings/SettingsModal";
 import type { Conversation, Message, AppSettings } from "@/lib/types";
+import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 const DEFAULT_SETTINGS: AppSettings = {
   provider: "openai",
@@ -44,6 +45,16 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
+  const supabase = useMemo(() => {
+    try {
+      return createSupabaseBrowserClient();
+    } catch {
+      return null;
+    }
+  }, []);
 
   useEffect(() => {
     const s = getStoredSettings();
@@ -52,6 +63,21 @@ export default function Home() {
     if (window.innerWidth < 768) setSidebarCollapsed(true);
     setLoaded(true);
   }, []);
+
+  useEffect(() => {
+    (async () => {
+      if (!supabase) {
+        setAuthReady(true);
+        return;
+      }
+      const { data } = await supabase.auth.getSession();
+      setUserEmail(data.session?.user?.email ?? null);
+      setAuthReady(true);
+      supabase.auth.onAuthStateChange((_event, session) => {
+        setUserEmail(session?.user?.email ?? null);
+      });
+    })();
+  }, [supabase]);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -126,6 +152,14 @@ export default function Home() {
     );
   }
 
+  if (!authReady) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-background">
+        <div className="animate-pulse text-muted-foreground text-sm">Loading session...</div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen flex bg-background">
       <Sidebar
@@ -150,6 +184,7 @@ export default function Home() {
       <ChatArea
         conversationId={activeConvoId}
         settings={settings}
+        onSaveSettings={handleSaveSettings}
         initialMessages={activeMessages}
         onConversationCreated={handleConversationCreated}
         onToggleSidebar={() => setSidebarCollapsed(false)}
@@ -162,6 +197,31 @@ export default function Home() {
         settings={settings}
         onSave={handleSaveSettings}
       />
+
+      {!userEmail && (
+        <a
+          href="/auth"
+          className="fixed bottom-4 right-4 px-3 py-2 rounded-lg bg-card border border-border shadow-lg text-xs hover:bg-muted transition-colors"
+          title="Sign in to sync across devices"
+        >
+          Sign in to sync
+        </a>
+      )}
+      {userEmail && (
+        <button
+          onClick={async () => {
+            if (!supabase) return;
+            await supabase.auth.signOut();
+            setActiveConvoId(null);
+            setActiveMessages([]);
+            setConversations([]);
+          }}
+          className="fixed bottom-4 right-4 px-3 py-2 rounded-lg bg-card border border-border shadow-lg text-xs hover:bg-muted transition-colors"
+          title={userEmail}
+        >
+          Sign out
+        </button>
+      )}
     </div>
   );
 }

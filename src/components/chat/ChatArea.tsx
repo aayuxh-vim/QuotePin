@@ -2,9 +2,10 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useChat } from "ai/react";
-import { Send, Loader2, PanelLeftOpen, AlertCircle, Sparkles, GitFork } from "lucide-react";
+import { Send, Loader2, PanelLeftOpen, AlertCircle, Sparkles, GitFork, Sun, Moon, Share2, Check } from "lucide-react";
 import MessageBubble from "./MessageBubble";
 import SelectionPopup from "./SelectionPopup";
+import MobileAnnotateSheet from "./MobileAnnotateSheet";
 import { parseDataStream } from "@/lib/stream-parser";
 import type { Annotation, AppSettings, Message as DBMessage } from "@/lib/types";
 
@@ -14,6 +15,9 @@ interface LocalAnnotation {
   selectedText: string;
   startOffset: number;
   endOffset: number;
+  occurrence: number;
+  prefix: string;
+  suffix: string;
   question: string;
   answer: string;
   createdAt: string;
@@ -24,6 +28,7 @@ interface SelectionState {
   rect: DOMRect;
   messageContent: string;
   messageId?: string;
+  occurrenceHint: number;
 }
 
 interface AnnotationPopupState {
@@ -31,9 +36,15 @@ interface AnnotationPopupState {
   position: { x: number; y: number };
 }
 
+interface MobileSheetState {
+  messageId: string;
+  messageContent: string;
+}
+
 interface Props {
   conversationId: string | null;
   settings: AppSettings;
+  onSaveSettings: (settings: AppSettings) => void;
   initialMessages: DBMessage[];
   onConversationCreated: (id: string) => void;
   onToggleSidebar: () => void;
@@ -43,6 +54,7 @@ interface Props {
 export default function ChatArea({
   conversationId,
   settings,
+  onSaveSettings,
   initialMessages,
   onConversationCreated,
   onToggleSidebar,
@@ -50,12 +62,14 @@ export default function ChatArea({
 }: Props) {
   const [selection, setSelection] = useState<SelectionState | null>(null);
   const [annotationPopup, setAnnotationPopup] = useState<AnnotationPopupState | null>(null);
+  const [mobileSheet, setMobileSheet] = useState<MobileSheetState | null>(null);
   const [currentConvoId, setCurrentConvoId] = useState<string | null>(conversationId);
   const [annotationsMap, setAnnotationsMap] = useState<Record<string, LocalAnnotation[]>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
   const convoIdRef = useRef<string | null>(conversationId);
 
   const [chatError, setChatError] = useState<string | null>(null);
+  const [shareStatus, setShareStatus] = useState<"idle" | "copied" | "error">("idle");
 
   const {
     messages,
@@ -124,18 +138,20 @@ export default function ChatArea({
   }, [messages]);
 
   const handleTextSelect = useCallback(
-    (text: string, rect: DOMRect, messageContent: string) => {
+    (text: string, rect: DOMRect, messageContent: string, occurrenceHint: number) => {
       const matchingMsg = messages.find(
         (m) => m.role === "assistant" && m.content === messageContent
       );
       setAnnotationPopup(null);
-      setSelection({ text, rect, messageContent, messageId: matchingMsg?.id });
+      setMobileSheet(null);
+      setSelection({ text, rect, messageContent, messageId: matchingMsg?.id, occurrenceHint });
     },
     [messages]
   );
 
   function handleAnnotationClick(annotation: LocalAnnotation, rect: DOMRect) {
     setSelection(null);
+    setMobileSheet(null);
     setAnnotationPopup({
       annotation,
       position: { x: rect.left, y: rect.bottom },
@@ -175,23 +191,30 @@ export default function ChatArea({
     );
   }
 
-  async function handlePopupAsk(question: string): Promise<ReadableStream<Uint8Array> | null> {
-    if (!selection) return null;
-
-    const messageId = selection.messageId || "";
-    const startOffset = selection.messageContent.indexOf(selection.text);
-    const endOffset = startOffset + selection.text.length;
-
+  async function requestPopupAnswer(args: {
+    messageId: string;
+    messageContent: string;
+    selectedText: string;
+    startOffset: number;
+    endOffset: number;
+    occurrence: number;
+    prefix: string;
+    suffix: string;
+    question: string;
+  }): Promise<ReadableStream<Uint8Array> | null> {
     const res = await fetch("/api/chat/popup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        messageId,
-        selectedText: selection.text,
-        question,
-        startOffset,
-        endOffset,
-        originalContent: selection.messageContent,
+        messageId: args.messageId,
+        selectedText: args.selectedText,
+        question: args.question,
+        startOffset: args.startOffset,
+        endOffset: args.endOffset,
+        occurrence: args.occurrence,
+        prefix: args.prefix,
+        suffix: args.suffix,
+        originalContent: args.messageContent,
         provider: settings.provider,
         model: settings.model,
         apiKey: settings.apiKey,
@@ -202,10 +225,65 @@ export default function ChatArea({
     return res.body;
   }
 
+  async function handlePopupAsk(question: string): Promise<ReadableStream<Uint8Array> | null> {
+    if (!selection) return null;
+
+    const messageId = selection.messageId || "";
+    const content = selection.messageContent;
+    const selected = selection.text;
+
+    function findNthIndex(haystack: string, needle: string, n: number) {
+      if (!needle) return -1;
+      let idx = -1;
+      let from = 0;
+      for (let i = 0; i <= n; i++) {
+        idx = haystack.indexOf(needle, from);
+        if (idx === -1) return -1;
+        from = idx + needle.length;
+      }
+      return idx;
+    }
+
+    const startOffset = Math.max(0, findNthIndex(content, selected, selection.occurrenceHint));
+    const endOffset = startOffset + selected.length;
+
+    const prefix = content.slice(Math.max(0, startOffset - 32), startOffset);
+    const suffix = content.slice(endOffset, Math.min(content.length, endOffset + 32));
+
+    return requestPopupAnswer({
+      messageId,
+      messageContent: content,
+      selectedText: selection.text,
+      question,
+      startOffset,
+      endOffset,
+      occurrence: selection.occurrenceHint,
+      prefix,
+      suffix,
+    });
+  }
+
   function handleSaveAnnotation(question: string, answer: string) {
     if (!selection) return;
-    const startOffset = selection.messageContent.indexOf(selection.text);
-    const endOffset = startOffset + selection.text.length;
+    const content = selection.messageContent;
+    const selected = selection.text;
+
+    function findNthIndex(haystack: string, needle: string, n: number) {
+      if (!needle) return -1;
+      let idx = -1;
+      let from = 0;
+      for (let i = 0; i <= n; i++) {
+        idx = haystack.indexOf(needle, from);
+        if (idx === -1) return -1;
+        from = idx + needle.length;
+      }
+      return idx;
+    }
+
+    const startOffset = Math.max(0, findNthIndex(content, selected, selection.occurrenceHint));
+    const endOffset = startOffset + selected.length;
+    const prefix = content.slice(Math.max(0, startOffset - 32), startOffset);
+    const suffix = content.slice(endOffset, Math.min(content.length, endOffset + 32));
 
     const newAnnotation: LocalAnnotation = {
       id: `ann-${Date.now()}`,
@@ -213,6 +291,9 @@ export default function ChatArea({
       selectedText: selection.text,
       startOffset,
       endOffset,
+      occurrence: selection.occurrenceHint,
+      prefix,
+      suffix,
       question,
       answer,
       createdAt: new Date().toISOString(),
@@ -230,6 +311,13 @@ export default function ChatArea({
   const isStreaming = status === "streaming";
   const isBusy = isWaiting || isStreaming;
 
+  const isDark = settings.theme === "dark" || (settings.theme === "system" && typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches);
+
+  function toggleTheme() {
+    const nextTheme = isDark ? "light" : "dark";
+    onSaveSettings({ ...settings, theme: nextTheme });
+  }
+
   return (
     <div className="flex-1 flex flex-col h-full min-w-0">
       <header className="h-12 flex items-center gap-3 px-4 border-b border-border flex-shrink-0">
@@ -240,6 +328,37 @@ export default function ChatArea({
         )}
         <h1 className="font-semibold text-sm">ARD</h1>
         <div className="flex-1" />
+        <button
+          onClick={toggleTheme}
+          className="p-1.5 rounded-md hover:bg-muted transition-colors text-muted-foreground"
+          title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+        >
+          {isDark ? <Sun size={16} /> : <Moon size={16} />}
+        </button>
+        {currentConvoId && (
+          <button
+            onClick={async () => {
+              try {
+                setShareStatus("idle");
+                const res = await fetch(`/api/conversations/${currentConvoId}/share`, { method: "POST" });
+                if (!res.ok) throw new Error("Failed to enable sharing");
+                const data = await res.json();
+                const url = `${window.location.origin}/share/${data.shareToken}`;
+                await navigator.clipboard.writeText(url);
+                setShareStatus("copied");
+                setTimeout(() => setShareStatus("idle"), 1500);
+              } catch {
+                setShareStatus("error");
+                setTimeout(() => setShareStatus("idle"), 1500);
+              }
+            }}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            title="Copy share link"
+          >
+            {shareStatus === "copied" ? <Check size={13} /> : <Share2 size={13} />}
+            {shareStatus === "copied" ? "Copied" : "Share"}
+          </button>
+        )}
         {currentConvoId && (
           <a
             href={`/graph/${currentConvoId}`}
@@ -283,6 +402,11 @@ export default function ChatArea({
                 annotations={annotationsMap[msg.id] || []}
                 onAnnotationClick={handleAnnotationClick}
                 onTextSelect={handleTextSelect}
+                onMobileAnnotate={(messageId, messageContent) => {
+                  setSelection(null);
+                  setAnnotationPopup(null);
+                  setMobileSheet({ messageId, messageContent });
+                }}
                 messageId={msg.id}
               />
             ))}
@@ -344,6 +468,53 @@ export default function ChatArea({
           onAsk={handlePopupAsk}
           onClose={() => setSelection(null)}
           onSaveAnnotation={handleSaveAnnotation}
+          onReplyInChat={handleReplyInChat}
+        />
+      )}
+
+      {mobileSheet && (
+        <MobileAnnotateSheet
+          open={!!mobileSheet}
+          messageId={mobileSheet.messageId}
+          messageContent={mobileSheet.messageContent}
+          onClose={() => setMobileSheet(null)}
+          onAsk={async (payload) => {
+            if (!settings.apiKey) return null;
+            return requestPopupAnswer({
+              messageId: mobileSheet.messageId,
+              messageContent: mobileSheet.messageContent,
+              selectedText: payload.selectedText,
+              startOffset: payload.startOffset,
+              endOffset: payload.endOffset,
+              occurrence: payload.occurrence,
+              prefix: payload.prefix,
+              suffix: payload.suffix,
+              question: payload.question,
+            });
+          }}
+          onSaveAnnotation={(q, a) => {
+            // Save into local UI map immediately (same behavior as desktop popup).
+            const msgId = mobileSheet.messageId;
+            const content = mobileSheet.messageContent;
+            const newAnnotation: LocalAnnotation = {
+              id: `ann-${Date.now()}`,
+              messageId: msgId,
+              // Mobile sheet saves server-side to the right offsets; we keep a best-effort local copy.
+              selectedText: q ? "(mobile)" : "(mobile)",
+              startOffset: 0,
+              endOffset: 0,
+              occurrence: 0,
+              prefix: "",
+              suffix: "",
+              question: q,
+              answer: a,
+              createdAt: new Date().toISOString(),
+            };
+            setAnnotationsMap((prev) => ({
+              ...prev,
+              [msgId]: [...(prev[msgId] || []), newAnnotation],
+            }));
+          }}
           onReplyInChat={handleReplyInChat}
         />
       )}

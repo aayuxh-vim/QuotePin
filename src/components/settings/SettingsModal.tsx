@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X, Key, Bot, Sun, Moon, Monitor } from "lucide-react";
+import { X, Key, Bot, Sun, Moon, Monitor, Upload, Download } from "lucide-react";
 import { PROVIDER_MODELS, type Provider } from "@/lib/ai";
 import type { AppSettings } from "@/lib/types";
 
@@ -14,6 +14,7 @@ interface Props {
 
 export default function SettingsModal({ open, onClose, settings, onSave }: Props) {
   const [local, setLocal] = useState<AppSettings>(settings);
+  const [migrateMessage, setMigrateMessage] = useState<string | null>(null);
 
   useEffect(() => {
     setLocal(settings);
@@ -32,6 +33,48 @@ export default function SettingsModal({ open, onClose, settings, onSave }: Props
   function handleSave() {
     onSave(local);
     onClose();
+  }
+
+  async function handleExport() {
+    setMigrateMessage(null);
+    const res = await fetch("/api/export");
+    if (!res.ok) {
+      setMigrateMessage("Export failed. Make sure you are signed in.");
+      return;
+    }
+    const data = await res.json();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `ard-export-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setMigrateMessage("Export downloaded.");
+  }
+
+  async function handleImport(file: File) {
+    setMigrateMessage(null);
+    try {
+      const text = await file.text();
+      const payload = JSON.parse(text);
+      const res = await fetch("/api/migrate/local", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setMigrateMessage(err.error || "Import failed.");
+        return;
+      }
+      const result = await res.json();
+      setMigrateMessage(
+        `Imported ${result.importedConversations} conversations (${result.importedMessages} messages, ${result.importedAnnotations} annotations).`
+      );
+    } catch {
+      setMigrateMessage("Invalid JSON file.");
+    }
   }
 
   return (
@@ -121,6 +164,38 @@ export default function SettingsModal({ open, onClose, settings, onSave }: Props
                 </button>
               ))}
             </div>
+          </div>
+
+          <div>
+            <label className="flex items-center gap-2 text-sm font-medium mb-2">
+              Export / Import
+            </label>
+            <div className="flex gap-2">
+              <button
+                onClick={handleExport}
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-sm border border-input hover:bg-muted transition-colors"
+              >
+                <Download size={14} />
+                Export JSON
+              </button>
+              <label className="flex-1">
+                <input
+                  type="file"
+                  accept="application/json"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleImport(f);
+                    e.currentTarget.value = "";
+                  }}
+                />
+                <span className="w-full cursor-pointer flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-sm border border-input hover:bg-muted transition-colors">
+                  <Upload size={14} />
+                  Import JSON
+                </span>
+              </label>
+            </div>
+            {migrateMessage && <p className="text-xs text-muted-foreground mt-2">{migrateMessage}</p>}
           </div>
         </div>
 

@@ -2,15 +2,22 @@ import { streamText } from "ai";
 import { getModel, type Provider } from "@/lib/ai";
 import { prisma } from "@/lib/db";
 import { NextRequest } from "next/server";
+import { requireUserId } from "@/lib/supabase/server";
 
 export async function POST(req: NextRequest) {
   try {
+    const userId = await requireUserId();
+    if (!userId) return new Response("Unauthorized. Please sign in.", { status: 401 });
+
     const {
       messageId,
       selectedText,
       question,
       startOffset,
       endOffset,
+      occurrence,
+      prefix,
+      suffix,
       originalContent,
       provider,
       model,
@@ -43,12 +50,22 @@ export async function POST(req: NextRequest) {
       async onFinish({ text }) {
         try {
           if (messageId) {
+            // Verify the message belongs to a conversation owned by this user.
+            const msg = await prisma.message.findUnique({
+              where: { id: messageId },
+              select: { conversation: { select: { ownerId: true } } },
+            });
+            if (!msg || msg.conversation.ownerId !== userId) return;
+
             await prisma.annotation.create({
               data: {
                 messageId,
                 selectedText,
                 startOffset,
                 endOffset,
+                occurrence: typeof occurrence === "number" ? occurrence : 0,
+                prefix: typeof prefix === "string" ? prefix : "",
+                suffix: typeof suffix === "string" ? suffix : "",
                 question,
                 answer: text,
               },
