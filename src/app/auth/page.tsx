@@ -12,7 +12,7 @@ export default function AuthPage() {
     }
   }, []);
 
-  const [mode, setMode] = useState<"signIn" | "signUp">("signIn");
+  const [mode, setMode] = useState<"signIn" | "signUp" | "reset">("signIn");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -37,7 +37,13 @@ export default function AuthPage() {
     setLoading(true);
     setMessage(null);
     try {
-      if (mode === "signUp") {
+      if (mode === "reset") {
+        const redirectTo = `${window.location.origin}/auth/reset`;
+        const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+        if (error) throw error;
+        setMessage("Password reset email sent. Check your inbox.");
+        setMode("signIn");
+      } else if (mode === "signUp") {
         const { error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
         setMessage("Account created. If email confirmation is enabled, check your inbox. Otherwise you can sign in now.");
@@ -97,16 +103,18 @@ export default function AuthPage() {
             />
           </div>
 
-          <div>
-            <label className="text-xs font-medium">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 w-full px-3 py-2 bg-background border border-input rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              required
-            />
-          </div>
+          {mode !== "reset" && (
+            <div>
+              <label className="text-xs font-medium">Password</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="mt-1 w-full px-3 py-2 bg-background border border-input rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                required
+              />
+            </div>
+          )}
 
           {message && <p className="text-xs text-muted-foreground">{message}</p>}
 
@@ -115,8 +123,27 @@ export default function AuthPage() {
             disabled={loading}
             className="w-full px-3 py-2 rounded-md bg-primary text-primary-foreground text-sm disabled:opacity-50 hover:opacity-90 transition-opacity"
           >
-            {loading ? "Please wait..." : mode === "signUp" ? "Create account" : "Sign in"}
+            {loading
+              ? "Please wait..."
+              : mode === "signUp"
+                ? "Create account"
+                : mode === "reset"
+                  ? "Send reset email"
+                  : "Sign in"}
           </button>
+
+          {mode === "signIn" && (
+            <button
+              type="button"
+              onClick={() => {
+                setMessage(null);
+                setMode("reset");
+              }}
+              className="w-full text-center text-xs text-muted-foreground hover:underline"
+            >
+              Forgot password?
+            </button>
+          )}
 
           <a href="/" className="block text-center text-xs text-muted-foreground hover:underline">
             Back to chat
