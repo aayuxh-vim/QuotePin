@@ -18,17 +18,11 @@ interface Props {
   messageId?: string;
 }
 
-function renderContentWithAnnotations(
-  content: string,
-  annotations: Annotation[],
-  onAnnotationClick: (annotation: Annotation, rect: DOMRect) => void
-): React.ReactNode {
-  if (!annotations.length) return null;
-
-  const resolved = annotations
-    .map((a) => ({
-      annotation: a,
-      anchor: resolveAnnotationAnchor({
+function resolveForChips(content: string, annotations: Annotation[]) {
+  // Resolve anchors only to create stable preview labels; do NOT splice into markdown.
+  return annotations
+    .map((a) => {
+      const anchor = resolveAnnotationAnchor({
         content,
         selectedText: a.selectedText,
         startOffset: a.startOffset,
@@ -36,52 +30,14 @@ function renderContentWithAnnotations(
         occurrence: (a as any).occurrence,
         prefix: (a as any).prefix,
         suffix: (a as any).suffix,
-      }),
-    }))
-    // Only inline-embed anchors we can confidently place.
-    // If we can't resolve, we avoid injecting at the wrong spot (e.g. front).
-    .filter((x) => x.anchor.resolved && x.anchor.start >= 0 && x.anchor.end <= content.length)
-    .sort((a, b) => a.anchor.start - b.anchor.start);
-
-  const parts: React.ReactNode[] = [];
-  let lastEnd = 0;
-
-  for (const item of resolved) {
-    const ann = item.annotation;
-    const startOffset = item.anchor.start;
-    const endOffset = item.anchor.end;
-
-    if (startOffset > lastEnd) {
-      parts.push(
-        <MarkdownSegment key={`text-${lastEnd}`} content={content.slice(lastEnd, startOffset)} />
-      );
-    }
-    parts.push(
-      <AnnotationBadge
-        key={ann.id}
-        annotation={ann}
-        displayText={content.slice(startOffset, endOffset)}
-        onClick={onAnnotationClick}
-      />
-    );
-    lastEnd = Math.max(lastEnd, endOffset);
-  }
-
-  if (lastEnd < content.length) {
-    parts.push(
-      <MarkdownSegment key={`text-${lastEnd}`} content={content.slice(lastEnd)} />
-    );
-  }
-
-  return <div className="markdown-body">{parts}</div>;
-}
-
-function MarkdownSegment({ content }: { content: string }) {
-  return (
-    <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ p: ({ children }) => <span>{children} </span> }}>
-      {content}
-    </ReactMarkdown>
-  );
+      });
+      const preview =
+        anchor.resolved && anchor.end <= content.length
+          ? content.slice(anchor.start, anchor.end)
+          : a.selectedText;
+      return { annotation: a, preview };
+    })
+    .slice(0, 20);
 }
 
 export default function MessageBubble({
@@ -95,10 +51,7 @@ export default function MessageBubble({
 }: Props) {
   const isUser = role === "user";
 
-  const annotatedContent = useMemo(
-    () => renderContentWithAnnotations(content, annotations, onAnnotationClick),
-    [content, annotations, onAnnotationClick]
-  );
+  const annotationChips = useMemo(() => resolveForChips(content, annotations), [content, annotations]);
 
   function handleMouseUp() {
     if (isUser) return;
@@ -169,14 +122,24 @@ export default function MessageBubble({
         >
           {isUser ? (
             <p className="text-sm whitespace-pre-wrap">{content}</p>
-          ) : annotations.length > 0 ? (
-            annotatedContent
           ) : (
             <div className="markdown-body text-sm">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
             </div>
           )}
         </div>
+        {!isUser && annotations.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {annotationChips.map(({ annotation, preview }) => (
+              <AnnotationBadge
+                key={annotation.id}
+                annotation={annotation}
+                displayText={preview}
+                onClick={onAnnotationClick}
+              />
+            ))}
+          </div>
+        )}
         {!isUser && !hintDismissed && (
           <button
             onClick={dismissHint}
