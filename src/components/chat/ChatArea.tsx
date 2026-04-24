@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useChat } from "ai/react";
-import { Send, Loader2, PanelLeftOpen, AlertCircle, Sparkles, GitFork, Sun, Moon, Share2, Check } from "lucide-react";
+import { Send, Loader2, PanelLeftOpen, AlertCircle, Sparkles, GitFork, Sun, Moon, Share2, Check, Bookmark } from "lucide-react";
 import MessageBubble from "./MessageBubble";
 import SelectionPopup from "./SelectionPopup";
 import MobileAnnotateSheet from "./MobileAnnotateSheet";
@@ -53,6 +53,13 @@ interface Props {
   mode: "local" | "cloud";
 }
 
+type BookmarkItem = {
+  messageId: string;
+  role: "user" | "assistant";
+  preview: string;
+  createdAt: string;
+};
+
 export default function ChatArea({
   conversationId,
   settings,
@@ -77,6 +84,11 @@ export default function ChatArea({
   const [shareStatus, setShareStatus] = useState<"idle" | "copied" | "error">("idle");
   const [shareEnabled, setShareEnabled] = useState<boolean>(false);
   const [shareToken, setShareToken] = useState<string | null>(null);
+  const [bookmarks, setBookmarks] = useState<BookmarkItem[]>([]);
+
+  const messageElsRef = useRef<Record<string, HTMLDivElement | null>>({});
+
+  const bookmarkKey = currentConvoId ? `ard-bookmarks:${currentConvoId}` : null;
 
   const {
     messages,
@@ -138,7 +150,32 @@ export default function ChatArea({
     setAnnotationPopup(null);
     setShareEnabled(false);
     setShareToken(null);
+    setBookmarks([]);
   }, [conversationId, initialMessages, setMessages]);
+
+  useEffect(() => {
+    if (!bookmarkKey) return;
+    try {
+      const raw = localStorage.getItem(bookmarkKey);
+      if (!raw) {
+        setBookmarks([]);
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) setBookmarks(parsed);
+    } catch {
+      setBookmarks([]);
+    }
+  }, [bookmarkKey]);
+
+  useEffect(() => {
+    if (!bookmarkKey) return;
+    try {
+      localStorage.setItem(bookmarkKey, JSON.stringify(bookmarks));
+    } catch {
+      // ignore
+    }
+  }, [bookmarkKey, bookmarks]);
 
   useEffect(() => {
     (async () => {
@@ -489,7 +526,7 @@ export default function ChatArea({
         </span>
       </header>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin relative">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-4">
             <div className="w-14 h-14 rounded-2xl bg-annotation/10 flex items-center justify-center mb-5">
@@ -509,22 +546,40 @@ export default function ChatArea({
             )}
           </div>
         ) : (
-          <div className="max-w-4xl mx-auto">
+          <div className="max-w-4xl mx-auto pr-0 lg:pr-56">
             {messages.map((msg) => (
-              <MessageBubble
+              <div
                 key={msg.id}
-                role={msg.role as "user" | "assistant"}
-                content={msg.content}
-                annotations={annotationsMap[msg.id] || []}
-                onAnnotationClick={handleAnnotationClick}
-                onTextSelect={handleTextSelect}
-                onMobileAnnotate={(messageId, messageContent) => {
-                  setSelection(null);
-                  setAnnotationPopup(null);
-                  setMobileSheet({ messageId, messageContent });
+                ref={(el) => {
+                  messageElsRef.current[msg.id] = el;
                 }}
-                messageId={msg.id}
-              />
+              >
+                <MessageBubble
+                  role={msg.role as "user" | "assistant"}
+                  content={msg.content}
+                  annotations={annotationsMap[msg.id] || []}
+                  onAnnotationClick={handleAnnotationClick}
+                  onTextSelect={handleTextSelect}
+                  onMobileAnnotate={(messageId, messageContent) => {
+                    setSelection(null);
+                    setAnnotationPopup(null);
+                    setMobileSheet({ messageId, messageContent });
+                  }}
+                  onToggleBookmark={(messageId, role, content) => {
+                    setBookmarks((prev) => {
+                      const exists = prev.some((b) => b.messageId === messageId);
+                      if (exists) return prev.filter((b) => b.messageId !== messageId);
+                      const preview = content.length > 48 ? content.slice(0, 48).trim() + "…" : content.trim();
+                      return [
+                        ...prev,
+                        { messageId, role, preview, createdAt: new Date().toISOString() },
+                      ];
+                    });
+                  }}
+                  isBookmarked={bookmarks.some((b) => b.messageId === msg.id)}
+                  messageId={msg.id}
+                />
+              </div>
             ))}
             {isWaiting && (
               <div className="flex items-center gap-3 px-4 py-4 animate-fade-in">
@@ -535,6 +590,37 @@ export default function ChatArea({
               </div>
             )}
           </div>
+        )}
+
+        {bookmarks.length > 0 && (
+          <aside className="hidden lg:block absolute top-0 right-0 h-full w-52 border-l border-border bg-background/60 backdrop-blur px-2 py-3">
+            <div className="flex items-center gap-2 px-1.5 pb-2 border-b border-border/60">
+              <Bookmark size={14} className="text-annotation" />
+              <span className="text-xs font-semibold">Bookmarks</span>
+              <span className="ml-auto text-[10px] text-muted-foreground">{bookmarks.length}</span>
+            </div>
+            <div className="mt-2 space-y-1.5 overflow-y-auto max-h-[calc(100%-32px)] scrollbar-thin pr-1">
+              {bookmarks
+                .slice()
+                .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+                .map((b) => (
+                  <button
+                    key={b.messageId}
+                    onClick={() => {
+                      const el = messageElsRef.current[b.messageId];
+                      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+                    }}
+                    className="w-full text-left px-2 py-1.5 rounded-md border border-border/60 hover:bg-muted transition-colors"
+                    title="Jump to message"
+                  >
+                    <div className="text-[10px] text-muted-foreground">
+                      {b.role === "user" ? "You" : "AI"}
+                    </div>
+                    <div className="text-xs leading-snug line-clamp-2">{b.preview || "(empty)"}</div>
+                  </button>
+                ))}
+            </div>
+          </aside>
         )}
       </div>
 

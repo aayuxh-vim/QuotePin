@@ -3,7 +3,7 @@
 import { useMemo, useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { User, Bot, Sparkles } from "lucide-react";
+import { User, Bot, Sparkles, Bookmark, BookmarkCheck } from "lucide-react";
 import type { Annotation } from "@/lib/types";
 import AnnotationBadge from "./AnnotationBadge";
 import { resolveAnnotationAnchor } from "@/lib/annotation-anchor";
@@ -15,6 +15,8 @@ interface Props {
   onAnnotationClick: (annotation: Annotation, rect: DOMRect) => void;
   onTextSelect: (text: string, rect: DOMRect, messageContent: string, occurrenceHint: number) => void;
   onMobileAnnotate?: (messageId: string, messageContent: string) => void;
+  onToggleBookmark?: (messageId: string, role: "user" | "assistant", content: string) => void;
+  isBookmarked?: boolean;
   messageId?: string;
 }
 
@@ -47,6 +49,8 @@ export default function MessageBubble({
   onAnnotationClick,
   onTextSelect,
   onMobileAnnotate,
+  onToggleBookmark,
+  isBookmarked,
   messageId,
 }: Props) {
   const isUser = role === "user";
@@ -111,7 +115,18 @@ export default function MessageBubble({
         </div>
       )}
       <div className={`${isUser ? "max-w-[75%]" : "flex-1 max-w-3xl"}`}>
-        <div
+        <div className="relative group">
+          {onToggleBookmark && messageId && (
+            <button
+              onClick={() => onToggleBookmark(messageId, role, content)}
+              className="absolute -top-2 -right-2 p-1.5 rounded-md bg-card/70 backdrop-blur border border-border shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-muted"
+              title={isBookmarked ? "Remove bookmark" : "Bookmark this message"}
+            >
+              {isBookmarked ? <BookmarkCheck size={14} className="text-annotation" /> : <Bookmark size={14} />}
+            </button>
+          )}
+
+          <div
           className={
             isUser
               ? "bg-primary text-primary-foreground px-4 py-2.5 rounded-2xl rounded-br-md"
@@ -127,6 +142,7 @@ export default function MessageBubble({
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
             </div>
           )}
+          </div>
         </div>
         {!isUser && annotations.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-2">
