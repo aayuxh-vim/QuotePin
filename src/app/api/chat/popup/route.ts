@@ -7,7 +7,6 @@ import { requireUserId } from "@/lib/supabase/server";
 export async function POST(req: NextRequest) {
   try {
     const userId = await requireUserId();
-    if (!userId) return new Response("Unauthorized. Please sign in.", { status: 401 });
 
     const {
       messageId,
@@ -22,7 +21,11 @@ export async function POST(req: NextRequest) {
       provider,
       model,
       apiKey,
+      persist,
     } = await req.json();
+
+    const shouldPersist = persist !== false;
+    if (shouldPersist && !userId) return new Response("Unauthorized. Please sign in.", { status: 401 });
 
     if (!apiKey) {
       return new Response("API key is required", { status: 400 });
@@ -49,7 +52,7 @@ export async function POST(req: NextRequest) {
       messages: [{ role: "user", content: question }],
       async onFinish({ text }) {
         try {
-          if (messageId) {
+          if (shouldPersist && messageId) {
             // Verify the message belongs to a conversation owned by this user.
             const msg = await prisma.message.findUnique({
               where: { id: messageId },

@@ -1,12 +1,16 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { PanelLeftClose } from "lucide-react";
 import Sidebar from "@/components/sidebar/Sidebar";
 import ChatArea from "@/components/chat/ChatArea";
 import SettingsModal from "@/components/settings/SettingsModal";
 import type { Conversation, Message, AppSettings } from "@/lib/types";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { getCloudDataSource, getLocalDataSource } from "@/lib/data-source";
+import type { DataSource } from "@/lib/data-source";
+import { localExportAll, localListConversations } from "@/lib/local-db";
+import SyncPromptModal from "@/components/auth/SyncPromptModal";
 
 const DEFAULT_SETTINGS: AppSettings = {
   provider: "openai",
@@ -47,6 +51,11 @@ export default function Home() {
   const [loaded, setLoaded] = useState(false);
   const [authReady, setAuthReady] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [mode, setMode] = useState<"local" | "cloud">("local");
+  const [dataSource, setDataSource] = useState<DataSource>(() => getLocalDataSource());
+  const [showSyncPrompt, setShowSyncPrompt] = useState(false);
+  const [localConvoCount, setLocalConvoCount] = useState(0);
+  const prevSignedInRef = useRef(false);
 
   const supabase = useMemo(() => {
     try {
@@ -68,6 +77,8 @@ export default function Home() {
     (async () => {
       if (!supabase) {
         setAuthReady(true);
+        setMode("local");
+        setDataSource(getLocalDataSource());
         return;
       }
 
@@ -89,9 +100,27 @@ export default function Home() {
 
       const { data } = await supabase.auth.getSession();
       setUserEmail(data.session?.user?.email ?? null);
+      const signedIn = !!data.session;
+      prevSignedInRef.current = signedIn;
+      setMode(signedIn ? "cloud" : "local");
+      setDataSource(signedIn ? getCloudDataSource() : getLocalDataSource());
       setAuthReady(true);
       const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
         setUserEmail(session?.user?.email ?? null);
+        const signedInNow = !!session;
+        const wasSignedIn = prevSignedInRef.current;
+        prevSignedInRef.current = signedInNow;
+        setMode(signedInNow ? "cloud" : "local");
+        setDataSource(signedInNow ? getCloudDataSource() : getLocalDataSource());
+
+        if (!wasSignedIn && signedInNow) {
+          localListConversations()
+            .then((list) => {
+              setLocalConvoCount(list.length);
+              if (list.length > 0) setShowSyncPrompt(true);
+            })
+            .catch(() => {});
+        }
       });
 
       return () => {
@@ -113,13 +142,10 @@ export default function Home() {
 
   const fetchConversations = useCallback(async () => {
     try {
-      const res = await fetch("/api/conversations");
-      if (res.ok) {
-        const data = await res.json();
-        setConversations(data);
-      }
+      const data = await dataSource.listConversations();
+      setConversations(data);
     } catch { /* ignore */ }
-  }, []);
+  }, [dataSource]);
 
   useEffect(() => {
     fetchConversations();
@@ -128,11 +154,8 @@ export default function Home() {
   async function loadConversation(id: string) {
     setActiveConvoId(id);
     try {
-      const res = await fetch(`/api/conversations/${id}`);
-      if (res.ok) {
-        const data = await res.json();
-        setActiveMessages(data.messages || []);
-      }
+      const data = await dataSource.getConversation(id);
+      setActiveMessages(data?.messages || []);
     } catch {
       setActiveMessages([]);
     }
@@ -145,7 +168,7 @@ export default function Home() {
 
   async function handleDeleteConversation(id: string) {
     try {
-      await fetch(`/api/conversations/${id}`, { method: "DELETE" });
+      await dataSource.deleteConversation(id);
       setConversations((prev) => prev.filter((c) => c.id !== id));
       if (activeConvoId === id) {
         setActiveConvoId(null);
@@ -210,6 +233,7 @@ export default function Home() {
         onConversationCreated={handleConversationCreated}
         onToggleSidebar={() => setSidebarCollapsed(false)}
         sidebarCollapsed={sidebarCollapsed}
+        mode={mode}
       />
 
       <SettingsModal
@@ -243,6 +267,31 @@ export default function Home() {
           Sign out
         </button>
       )}
+
+      <SyncPromptModal
+        open={showSyncPrompt}
+        localCount={localConvoCount}
+        onClose={() => setShowSyncPrompt(false)}
+        onUpload={async () => {
+          const payload = await localExportAll();
+          const res = await fetch("/api/migrate/local", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || "Upload failed");
+          }
+          setShowSyncPrompt(false);
+        }}
+        onKeepLocal={() => {
+          setShowSyncPrompt(false);
+        }}
+        onKeepSeparate={() => {
+          setShowSyncPrompt(false);
+        }}
+      />
     </div>
   );
 }

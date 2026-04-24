@@ -28,6 +28,7 @@
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
     "dagre": "^0.8.5",
+    "idb": "^8.0.3",
     "lucide-react": "^0.400.0",
     "next": "^15.0.0",
     "postcss": "^8.0.0",

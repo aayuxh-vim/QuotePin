@@ -8,6 +8,7 @@ import SelectionPopup from "./SelectionPopup";
 import MobileAnnotateSheet from "./MobileAnnotateSheet";
 import { parseDataStream } from "@/lib/stream-parser";
 import type { Annotation, AppSettings, Message as DBMessage } from "@/lib/types";
+import { localAddAnnotation, localAppendMessage, localCreateConversation } from "@/lib/local-db";
 
 interface LocalAnnotation {
   id: string;
@@ -49,6 +50,7 @@ interface Props {
   onConversationCreated: (id: string) => void;
   onToggleSidebar: () => void;
   sidebarCollapsed: boolean;
+  mode: "local" | "cloud";
 }
 
 export default function ChatArea({
@@ -59,6 +61,7 @@ export default function ChatArea({
   onConversationCreated,
   onToggleSidebar,
   sidebarCollapsed,
+  mode,
 }: Props) {
   const [selection, setSelection] = useState<SelectionState | null>(null);
   const [annotationPopup, setAnnotationPopup] = useState<AnnotationPopupState | null>(null);
@@ -67,6 +70,8 @@ export default function ChatArea({
   const [annotationsMap, setAnnotationsMap] = useState<Record<string, LocalAnnotation[]>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
   const convoIdRef = useRef<string | null>(conversationId);
+  const pendingAssistantSaveRef = useRef(false);
+  const lastSavedAssistantIdRef = useRef<string | null>(null);
 
   const [chatError, setChatError] = useState<string | null>(null);
   const [shareStatus, setShareStatus] = useState<"idle" | "copied" | "error">("idle");
@@ -92,7 +97,7 @@ export default function ChatArea({
     onResponse(response) {
       setChatError(null);
       const newConvoId = response.headers.get("X-Conversation-Id");
-      if (newConvoId && !convoIdRef.current) {
+      if (newConvoId && !convoIdRef.current && mode === "cloud") {
         convoIdRef.current = newConvoId;
         setCurrentConvoId(newConvoId);
         onConversationCreated(newConvoId);
@@ -138,6 +143,7 @@ export default function ChatArea({
   useEffect(() => {
     (async () => {
       if (!currentConvoId) return;
+      if (mode !== "cloud") return;
       try {
         const res = await fetch(`/api/conversations/${currentConvoId}/share`, { method: "GET" });
         if (!res.ok) return;
@@ -148,13 +154,49 @@ export default function ChatArea({
         // ignore
       }
     })();
-  }, [currentConvoId]);
+  }, [currentConvoId, mode]);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  // Local-mode persistence: write user+assistant messages to IndexedDB.
+  useEffect(() => {
+    if (mode !== "local") return;
+    const convoId = convoIdRef.current;
+    if (!convoId) return;
+
+    (async () => {
+      const last = messages[messages.length - 1];
+      if (!last) return;
+
+      // Save user messages immediately when they appear.
+      if (last.role === "user") {
+        await localAppendMessage({
+          id: last.id,
+          conversationId: convoId,
+          role: "user",
+          content: last.content,
+        });
+        return;
+      }
+
+      // Save assistant message once streaming is done.
+      if (last.role === "assistant" && status === "ready" && pendingAssistantSaveRef.current) {
+        if (lastSavedAssistantIdRef.current === last.id) return;
+        await localAppendMessage({
+          id: last.id,
+          conversationId: convoId,
+          role: "assistant",
+          content: last.content,
+        });
+        lastSavedAssistantIdRef.current = last.id;
+        pendingAssistantSaveRef.current = false;
+      }
+    })();
+  }, [mode, messages, status]);
 
   const handleTextSelect = useCallback(
     (text: string, rect: DOMRect, messageContent: string, occurrenceHint: number) => {
@@ -182,14 +224,37 @@ export default function ChatArea({
     if (!settings.apiKey || !input.trim()) return;
     setChatError(null);
 
-    sdkHandleSubmit(e, {
-      body: {
-        conversationId: convoIdRef.current,
-        provider: settings.provider,
-        model: settings.model,
-        apiKey: settings.apiKey,
-      },
-    });
+    (async () => {
+      let convoId = convoIdRef.current;
+
+      if (!convoId && mode === "local") {
+        const convo = await localCreateConversation({
+          id: `local_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+          provider: settings.provider,
+          model: settings.model,
+        });
+        convoId = convo.id;
+        convoIdRef.current = convo.id;
+        setCurrentConvoId(convo.id);
+        onConversationCreated(convo.id);
+      }
+
+      pendingAssistantSaveRef.current = mode === "local";
+      lastSavedAssistantIdRef.current = null;
+
+      sdkHandleSubmit(e, {
+        body: {
+          conversationId: convoId,
+          provider: settings.provider,
+          model: settings.model,
+          apiKey: settings.apiKey,
+          persist: mode === "cloud",
+        },
+      });
+
+      // Persist the user message in local mode using the same message id that `useChat` will create.
+      // We can't access that id here; instead we persist on the messages effect below once it appears.
+    })();
   }
 
   function handleReplyInChat(selectedText: string, question: string) {
@@ -237,6 +302,7 @@ export default function ChatArea({
         provider: settings.provider,
         model: settings.model,
         apiKey: settings.apiKey,
+        persist: mode === "cloud",
       }),
     });
 
@@ -323,6 +389,20 @@ export default function ChatArea({
       ...prev,
       [msgId]: [...(prev[msgId] || []), newAnnotation],
     }));
+
+    if (mode === "local" && selection.messageId) {
+      localAddAnnotation({
+        messageId: selection.messageId,
+        selectedText: selection.text,
+        startOffset,
+        endOffset,
+        occurrence: selection.occurrenceHint,
+        prefix,
+        suffix,
+        question,
+        answer,
+      }).catch(() => {});
+    }
   }
 
   const hasApiKey = !!settings.apiKey;
@@ -354,7 +434,7 @@ export default function ChatArea({
         >
           {isDark ? <Sun size={16} /> : <Moon size={16} />}
         </button>
-        {currentConvoId && (
+        {mode === "cloud" && currentConvoId && (
           <button
             onClick={async () => {
               try {
@@ -563,7 +643,7 @@ export default function ChatArea({
           existingAnswer={annotationPopup.annotation.answer}
           onAsk={async () => null}
           onClose={() => setAnnotationPopup(null)}
-          onSaveAnnotation={() => {}}
+          onSaveAnnotation={() => { }}
         />
       )}
     </div>

@@ -8,16 +8,17 @@ export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
+    const body = await req.json();
+    const { messages, conversationId, provider, model, apiKey, persist } = body;
+    const shouldPersist = persist !== false;
+
     const userId = await requireUserId();
-    if (!userId) {
+    if (shouldPersist && !userId) {
       return new Response(JSON.stringify({ error: "Unauthorized. Please sign in." }), {
         status: 401,
         headers: { "Content-Type": "application/json" },
       });
     }
-
-    const body = await req.json();
-    const { messages, conversationId, provider, model, apiKey } = body;
 
     if (!apiKey) {
       return new Response(JSON.stringify({ error: "API key is required. Open Settings to add one." }), {
@@ -50,16 +51,16 @@ export async function POST(req: NextRequest) {
 
     let convoId = conversationId;
 
-    if (!convoId) {
+    if (!convoId && shouldPersist) {
       const convo = await prisma.conversation.create({
-        data: { ownerId: userId, provider, model },
+        data: { ownerId: userId as string, provider, model },
       });
       convoId = convo.id;
     }
-    else {
+    else if (convoId && shouldPersist) {
       // Ensure the conversation belongs to the current user.
       const existing = await prisma.conversation.findUnique({
-        where: { id: convoId, ownerId: userId },
+        where: { id: convoId, ownerId: userId as string },
         select: { id: true },
       });
       if (!existing) {
@@ -71,7 +72,7 @@ export async function POST(req: NextRequest) {
     }
 
     const lastUserMsg = messages[messages.length - 1];
-    if (lastUserMsg?.role === "user") {
+    if (shouldPersist && lastUserMsg?.role === "user" && convoId) {
       await prisma.message.create({
         data: {
           conversationId: convoId,
@@ -90,7 +91,7 @@ export async function POST(req: NextRequest) {
       })),
       async onFinish({ text }) {
         try {
-          if (text) {
+          if (shouldPersist && text && convoId) {
             await prisma.message.create({
               data: {
                 conversationId: convoId,
@@ -100,7 +101,7 @@ export async function POST(req: NextRequest) {
             });
           }
 
-          if (messages.length <= 2 && text) {
+          if (shouldPersist && messages.length <= 2 && text && convoId) {
             const userContent = lastUserMsg?.content || "";
             const title = userContent.length > 50
               ? userContent.slice(0, 50).trim() + "..."
@@ -126,8 +127,10 @@ export async function POST(req: NextRequest) {
         return String(error);
       },
     });
-    response.headers.set("X-Conversation-Id", convoId);
-    response.headers.set("Access-Control-Expose-Headers", "X-Conversation-Id");
+    if (convoId) {
+      response.headers.set("X-Conversation-Id", convoId);
+      response.headers.set("Access-Control-Expose-Headers", "X-Conversation-Id");
+    }
     return response;
   } catch (err) {
     console.error("Chat API error:", err);
