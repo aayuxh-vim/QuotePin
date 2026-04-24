@@ -299,6 +299,20 @@ export default function ChatArea({
     setSelection(null);
     setChatError(null);
 
+    // In local mode, ensure we do not hit auth-required persistence.
+    // Also create a local conversation if needed.
+    if (mode === "local" && !convoIdRef.current) {
+      localCreateConversation({
+        id: `local_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+        provider: settings.provider,
+        model: settings.model,
+      }).then((convo) => {
+        convoIdRef.current = convo.id;
+        setCurrentConvoId(convo.id);
+        onConversationCreated(convo.id);
+      }).catch(() => {});
+    }
+
     append(
       { role: "user", content: `Regarding "${selectedText}":\n\n${question}` },
       {
@@ -307,6 +321,7 @@ export default function ChatArea({
           provider: settings.provider,
           model: settings.model,
           apiKey: settings.apiKey,
+          persist: mode === "cloud",
         },
       }
     );
@@ -593,7 +608,7 @@ export default function ChatArea({
         )}
 
         {bookmarks.length > 0 && (
-          <aside className="hidden lg:block absolute top-0 right-0 h-full w-52 border-l border-border bg-background/60 backdrop-blur px-2 py-3">
+          <aside className="hidden lg:block fixed top-16 right-4 w-56 max-h-[calc(100vh-96px)] border border-border bg-background/80 backdrop-blur px-2 py-3 shadow-lg rounded-xl">
             <div className="flex items-center gap-2 px-1.5 pb-2 border-b border-border/60">
               <Bookmark size={14} className="text-annotation" />
               <span className="text-xs font-semibold">Bookmarks</span>
