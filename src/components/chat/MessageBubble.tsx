@@ -142,7 +142,7 @@ export default function MessageBubble({
   useEffect(() => {
     if (isUser) return;
     try {
-      setHintDismissed(localStorage.getItem("ard-hint-dismissed") === "true");
+      setHintDismissed(localStorage.getItem("quotepin-hint-dismissed") === "true");
     } catch {}
   }, [isUser]);
 
@@ -170,7 +170,7 @@ export default function MessageBubble({
 
   function dismissHint() {
     setHintDismissed(true);
-    try { localStorage.setItem("ard-hint-dismissed", "true"); } catch {}
+    try { localStorage.setItem("quotepin-hint-dismissed", "true"); } catch {}
   }
 
   return (

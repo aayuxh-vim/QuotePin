@@ -15,7 +15,7 @@ In Supabase Dashboard → **Authentication → URL Configuration**
 
 ## 2) Vercel project setup
 
-1. In Vercel, **New Project** → import GitHub repo `aayuxh-vim/ARD` (branch `master`).
+1. In Vercel, **New Project** → import GitHub repo `aayuxh-vim/QuotePin` (branch `master`).
 2. Framework: **Next.js** (auto-detected)
 3. Build Command: `npm run build`
 4. Output: default

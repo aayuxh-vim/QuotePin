@@ -19,7 +19,7 @@ export default function GraphPage() {
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem("ard-settings");
+      const raw = localStorage.getItem("quotepin-settings");
       const theme = raw ? (JSON.parse(raw)?.theme as string | undefined) : undefined;
       const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
       const dark = theme === "dark" || (theme !== "light" && prefersDark);
@@ -34,9 +34,9 @@ export default function GraphPage() {
     root.classList.toggle("dark", theme === "dark");
     setIsDark(theme === "dark");
     try {
-      const raw = localStorage.getItem("ard-settings");
+      const raw = localStorage.getItem("quotepin-settings");
       const prev = raw ? JSON.parse(raw) : {};
-      localStorage.setItem("ard-settings", JSON.stringify({ ...prev, theme }));
+      localStorage.setItem("quotepin-settings", JSON.stringify({ ...prev, theme }));
     } catch {
       // ignore
     }

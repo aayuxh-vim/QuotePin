@@ -21,7 +21,7 @@ const DEFAULT_SETTINGS: AppSettings = {
 function getStoredSettings(): AppSettings {
   if (typeof window === "undefined") return DEFAULT_SETTINGS;
   try {
-    const stored = localStorage.getItem("ard-settings");
+    const stored = localStorage.getItem("quotepin-settings");
     if (stored) return { ...DEFAULT_SETTINGS, ...JSON.parse(stored) };
   } catch { /* ignore */ }
   return DEFAULT_SETTINGS;
@@ -178,7 +178,7 @@ export default function Home() {
 
   function handleSaveSettings(newSettings: AppSettings) {
     setSettings(newSettings);
-    localStorage.setItem("ard-settings", JSON.stringify(newSettings));
+    localStorage.setItem("quotepin-settings", JSON.stringify(newSettings));
     applyTheme(newSettings.theme);
   }
 

@@ -9,7 +9,7 @@ type LocalConversation = Omit<Conversation, "messages"> & {
 type LocalMessage = Message;
 type LocalAnnotation = Annotation;
 
-interface ArdLocalDB extends DBSchema {
+interface QuotePinLocalDB extends DBSchema {
   conversations: {
     key: string;
     value: LocalConversation;
@@ -27,7 +27,7 @@ interface ArdLocalDB extends DBSchema {
   };
 }
 
-const DB_NAME = "ard-local";
+const DB_NAME = "quotepin-local";
 const DB_VERSION = 1;
 
 export function isLocalId(id: string) {
@@ -40,7 +40,7 @@ function uid(prefix: string) {
 }
 
 async function db() {
-  return openDB<ArdLocalDB>(DB_NAME, DB_VERSION, {
+  return openDB<QuotePinLocalDB>(DB_NAME, DB_VERSION, {
     upgrade(database) {
       const convos = database.createObjectStore("conversations", { keyPath: "id" });
       convos.createIndex("by-updatedAt", "updatedAt");

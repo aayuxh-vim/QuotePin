@@ -42,7 +42,7 @@ const chatLimiter = redis
       redis,
       limiter: Ratelimit.slidingWindow(20, "1 m"),
       analytics: true,
-      prefix: "ard:rl:chat",
+      prefix: "quotepin:rl:chat",
     })
   : null;
 
@@ -51,7 +51,7 @@ const readLimiter = redis
       redis,
       limiter: Ratelimit.slidingWindow(120, "1 m"),
       analytics: true,
-      prefix: "ard:rl:read",
+      prefix: "quotepin:rl:read",
     })
   : null;
 
@@ -68,7 +68,7 @@ export async function middleware(req: NextRequest) {
       redis,
       limiter: Ratelimit.slidingWindow(30, "1 m"),
       analytics: true,
-      prefix: "ard:rl:bot",
+      prefix: "quotepin:rl:bot",
     });
     const blocked = await rateLimitOrPass(req, botLimiter);
     if (blocked) return blocked;

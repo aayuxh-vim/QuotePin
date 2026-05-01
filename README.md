@@ -1,10 +1,10 @@
-# ARD — AI Chatbot with Inline Context Popups
+# QuotePin — AI Chatbot with Inline Context Popups
 
-ARD is a chat interface that lets you highlight any word or phrase in an AI response and ask about it in a small popup — without cluttering the main conversation. The popup answer is saved as an embedded annotation you can revisit later. A conversation graph view (inspired by Obsidian) visualizes the relationship between messages and annotations.
+QuotePin is a chat interface that lets you highlight any word or phrase in an AI response and ask about it in a small popup — without cluttering the main conversation. The popup answer is saved as an embedded annotation you can revisit later. A conversation graph view (inspired by Obsidian) visualizes the relationship between messages and annotations.
 
-## Why ARD?
+## Why QuotePin?
 
-Standard AI chatbots force you to reply inline when you don't understand something, which buries clarifications in the main thread. ARD solves this with:
+Standard AI chatbots force you to reply inline when you don't understand something, which buries clarifications in the main thread. QuotePin solves this with:
 
 - **Inline popups** — select text in any AI response, ask a follow-up, and get the answer in a floating popup that stays attached to the original context.
 - **Annotations** — every popup Q&A is persisted and displayed as a badge on the original message, so you can find it later without scrolling.
@@ -41,8 +41,8 @@ Bring your own API key — keys are stored in browser `localStorage` and never s
 ### Install
 
 ```bash
-git clone https://github.com/aayuxh-vim/ARD.git
-cd ARD
+git clone https://github.com/aayuxh-vim/QuotePin.git
+cd QuotePin
 npm install
 ```
 

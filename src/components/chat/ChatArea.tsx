@@ -93,7 +93,7 @@ export default function ChatArea({
 
   const messageElsRef = useRef<Record<string, HTMLDivElement | null>>({});
 
-  const bookmarkKey = currentConvoId ? `ard-bookmarks:${currentConvoId}` : null;
+  const bookmarkKey = currentConvoId ? `quotepin-bookmarks:${currentConvoId}` : null;
 
   // If we're in a blank "New Chat" (no conversation yet), ensure we don't show stale bookmarks.
   useEffect(() => {
@@ -592,7 +592,7 @@ export default function ChatArea({
             <PanelLeftClose size={18} />
           </button>
         )}
-        <h1 className="font-semibold text-sm">ARD</h1>
+        <h1 className="font-semibold text-sm">QuotePin</h1>
         <div className="flex-1" />
         <button
           onClick={toggleTheme}
@@ -662,7 +662,7 @@ export default function ChatArea({
             <div className="w-14 h-14 rounded-2xl bg-annotation/10 flex items-center justify-center mb-5">
               <Sparkles size={26} className="text-annotation" />
             </div>
-            <h2 className="text-xl font-semibold mb-2">Welcome to ARD</h2>
+            <h2 className="text-xl font-semibold mb-2">Welcome to QuotePin</h2>
             <p className="text-sm text-muted-foreground max-w-md mb-1">
               Start a conversation. When the AI replies, <strong>select any text</strong> to open an inline popup and ask about it.
             </p>

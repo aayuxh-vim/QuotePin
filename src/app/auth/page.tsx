@@ -64,7 +64,7 @@ export default function AuthPage() {
     <div className="min-h-screen bg-background flex items-center justify-center px-4">
       <div className="w-full max-w-sm bg-card border border-border rounded-xl shadow-xl overflow-hidden">
         <div className="p-4 border-b border-border">
-          <h1 className="text-lg font-semibold">ARD</h1>
+          <h1 className="text-lg font-semibold">QuotePin</h1>
           <p className="text-xs text-muted-foreground mt-1">
             Sign in to sync conversations across devices.
           </p>
