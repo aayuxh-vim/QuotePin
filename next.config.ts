@@ -7,14 +7,16 @@ const csp = [
   "base-uri 'self'",
   "object-src 'none'",
   "frame-ancestors 'none'",
+  // Cloudflare Turnstile (CAPTCHA) renders in an iframe.
+  "frame-src https://challenges.cloudflare.com",
   "img-src 'self' data: https:",
   "font-src 'self' data:",
   "style-src 'self' 'unsafe-inline'",
   // Next.js uses inline scripts for hydration; strict CSP would require nonces.
   // In dev, Next also relies on eval for tooling/source maps.
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
+  `script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com${isDev ? " 'unsafe-eval'" : ""}`,
   // Supabase auth runs in the browser. In dev, allow HMR websocket.
-  `connect-src 'self' https://*.supabase.co https://*.supabase.com${isDev ? " ws: http://localhost:* http://127.0.0.1:*" : ""}`,
+  `connect-src 'self' https://*.supabase.co https://*.supabase.com https://challenges.cloudflare.com${isDev ? " ws: http://localhost:* http://127.0.0.1:*" : ""}`,
   "form-action 'self'",
 ].join("; ");
 
