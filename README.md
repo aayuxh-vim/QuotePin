@@ -19,6 +19,7 @@ Standard AI chatbots force you to reply inline when you don't understand somethi
 | Anthropic | Claude Sonnet 4, Claude 3.5 Sonnet, Claude 3.5 Haiku |
 | Google | Gemini 2.0 Flash, Gemini 2.0 Flash Lite, Gemini 1.5 Pro |
 | Groq | Llama 3.3 70B, Llama 3.1 8B, Gemma 2 9B, Mixtral 8x7B |
+| Qwen | qwen-turbo, qwen-plus, qwen-max |
 
 Bring your own API key — keys are stored in browser `localStorage` and never sent to any server other than the provider's API.
 

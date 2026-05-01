@@ -3,7 +3,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import type { LanguageModelV1 } from "ai";
 
-export type Provider = "anthropic" | "openai" | "google" | "groq";
+export type Provider = "anthropic" | "openai" | "google" | "groq" | "qwen";
 
 export interface ModelConfig {
   provider: Provider;
@@ -12,6 +12,14 @@ export interface ModelConfig {
 }
 
 export const PROVIDER_MODELS: Record<Provider, { label: string; models: { id: string; name: string }[] }> = {
+  qwen: {
+    label: "Qwen",
+    models: [
+      { id: "qwen-turbo", name: "Qwen Turbo" },
+      { id: "qwen-plus", name: "Qwen Plus" },
+      { id: "qwen-max", name: "Qwen Max" },
+    ],
+  },
   groq: {
     label: "Groq",
     models: [
@@ -68,6 +76,15 @@ export function getModel(config: ModelConfig): LanguageModelV1 {
         baseURL: "https://api.groq.com/openai/v1",
       });
       return groq(config.model);
+    }
+    case "qwen": {
+      // Qwen via DashScope OpenAI-compatible API.
+      // Docs: https://dashscope.aliyuncs.com/compatible-mode/v1
+      const qwen = createOpenAI({
+        apiKey: config.apiKey,
+        baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      });
+      return qwen(config.model);
     }
     default:
       throw new Error(`Unknown provider: ${config.provider}`);
