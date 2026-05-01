@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useChat } from "ai/react";
-import { Send, Loader2, PanelLeftOpen, PanelLeftClose, AlertCircle, Sparkles, GitFork, Sun, Moon, Share2, Check, Bookmark, X } from "lucide-react";
+import { Send, Loader2, PanelLeftOpen, PanelLeftClose, AlertCircle, Sparkles, GitFork, Sun, Moon, Share2, Check, Bookmark, X, Copy } from "lucide-react";
 import MessageBubble from "./MessageBubble";
 import SelectionPopup from "./SelectionPopup";
 import MobileAnnotateSheet from "./MobileAnnotateSheet";
@@ -87,6 +87,8 @@ export default function ChatArea({
   const [shareStatus, setShareStatus] = useState<"idle" | "copied" | "error">("idle");
   const [shareEnabled, setShareEnabled] = useState<boolean>(false);
   const [shareToken, setShareToken] = useState<string | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
   const [bookmarks, setBookmarks] = useState<BookmarkItem[]>([]);
   const [bookmarksHydratedFor, setBookmarksHydratedFor] = useState<string | null>(null);
   const [pendingScrollTo, setPendingScrollTo] = useState<string | null>(null);
@@ -214,6 +216,44 @@ export default function ChatArea({
       }
     })();
   }, [currentConvoId, mode]);
+
+  const shareUrl = shareToken ? `${typeof window !== "undefined" ? window.location.origin : ""}/share/${shareToken}` : null;
+
+  async function ensureShareEnabled() {
+    if (!currentConvoId || mode !== "cloud") return;
+    if (shareToken && shareEnabled) return;
+    setShareBusy(true);
+    try {
+      const res = await fetch(`/api/conversations/${currentConvoId}/share`, { method: "POST" });
+      if (!res.ok) throw new Error("Failed to enable sharing");
+      const data = await res.json();
+      setShareEnabled(true);
+      setShareToken(data.shareToken);
+      setShareStatus("idle");
+    } finally {
+      setShareBusy(false);
+    }
+  }
+
+  async function copyShareLink() {
+    if (!shareUrl) return;
+    await navigator.clipboard.writeText(shareUrl);
+    setShareStatus("copied");
+    setTimeout(() => setShareStatus("idle"), 1200);
+  }
+
+  async function disableShare() {
+    if (!currentConvoId || mode !== "cloud") return;
+    setShareBusy(true);
+    try {
+      const res = await fetch(`/api/conversations/${currentConvoId}/share`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to disable sharing");
+      setShareEnabled(false);
+      setShareToken(null);
+    } finally {
+      setShareBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -601,45 +641,29 @@ export default function ChatArea({
         >
           {isDark ? <Sun size={16} /> : <Moon size={16} />}
         </button>
-        {mode === "cloud" && currentConvoId && (
+        {currentConvoId && (
           <button
             onClick={async () => {
-              try {
-                setShareStatus("idle");
-                if (shareEnabled) {
-                  const res = await fetch(`/api/conversations/${currentConvoId}/share`, { method: "DELETE" });
-                  if (!res.ok) throw new Error("Failed to disable sharing");
-                  setShareEnabled(false);
-                  setShareToken(null);
-                  setShareStatus("copied");
-                  setTimeout(() => setShareStatus("idle"), 1500);
-                } else {
-                  const res = await fetch(`/api/conversations/${currentConvoId}/share`, { method: "POST" });
-                  if (!res.ok) throw new Error("Failed to enable sharing");
-                  const data = await res.json();
-                  setShareEnabled(true);
-                  setShareToken(data.shareToken);
-                  const url = `${window.location.origin}/share/${data.shareToken}`;
-                  await navigator.clipboard.writeText(url);
-                  setShareStatus("copied");
-                  setTimeout(() => setShareStatus("idle"), 1500);
+              setShareOpen(true);
+              if (mode === "cloud") {
+                // Ensure we show the latest status/token in the dialog.
+                try {
+                  const res = await fetch(`/api/conversations/${currentConvoId}/share`, { method: "GET" });
+                  if (res.ok) {
+                    const data = await res.json();
+                    setShareEnabled(!!data.shareEnabled);
+                    setShareToken(data.shareToken || null);
+                  }
+                } catch {
+                  // ignore
                 }
-              } catch {
-                setShareStatus("error");
-                setTimeout(() => setShareStatus("idle"), 1500);
               }
             }}
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-            title={shareEnabled ? "Disable sharing" : "Enable sharing and copy link"}
+            title={mode === "cloud" ? "Share this chat" : "Sign in to share chats"}
           >
-            {shareStatus === "copied" ? <Check size={13} /> : <Share2 size={13} />}
-            {shareStatus === "copied"
-              ? shareEnabled
-                ? "Disabled"
-                : "Copied"
-              : shareEnabled
-                ? "Disable share"
-                : "Share"}
+            <Share2 size={13} />
+            Share
           </button>
         )}
         {currentConvoId && (
@@ -655,6 +679,86 @@ export default function ChatArea({
           {settings.provider} / {settings.model}
         </span>
       </header>
+
+      {shareOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => setShareOpen(false)}
+        >
+          <div
+            className="bg-card border border-border rounded-lg shadow-2xl w-full max-w-md mx-4 animate-slide-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 border-b border-border">
+              <h2 className="text-lg font-semibold">Share chat</h2>
+              <button onClick={() => setShareOpen(false)} className="p-1 rounded-md hover:bg-muted transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-3">
+              {mode !== "cloud" ? (
+                <div className="text-sm text-muted-foreground">
+                  Sharing is available for synced chats. <a className="text-annotation hover:underline" href="/auth">Sign in</a> to enable sharing.
+                </div>
+              ) : (
+                <>
+                  {!shareEnabled ? (
+                    <button
+                      disabled={shareBusy}
+                      onClick={ensureShareEnabled}
+                      className="w-full px-3 py-2 rounded-md bg-primary text-primary-foreground text-sm disabled:opacity-50 hover:opacity-90 transition-opacity"
+                    >
+                      {shareBusy ? "Please wait..." : "Create share link"}
+                    </button>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <input
+                          readOnly
+                          value={shareUrl || ""}
+                          className="flex-1 px-3 py-2 bg-background border border-input rounded-md text-sm"
+                        />
+                        <button
+                          disabled={!shareUrl || shareBusy}
+                          onClick={copyShareLink}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-sm border border-input hover:bg-muted transition-colors disabled:opacity-50"
+                          title="Copy link"
+                        >
+                          {shareStatus === "copied" ? <Check size={14} /> : <Copy size={14} />}
+                          {shareStatus === "copied" ? "Copied" : "Copy"}
+                        </button>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <a
+                          className="text-xs text-annotation hover:underline"
+                          href={shareUrl || "#"}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Open link
+                        </a>
+                        <button
+                          disabled={shareBusy}
+                          onClick={disableShare}
+                          className="text-xs text-muted-foreground hover:underline disabled:opacity-50"
+                          title="Disable sharing"
+                        >
+                          Disable link
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+
+              {shareStatus === "error" && (
+                <p className="text-xs text-destructive">Something went wrong creating the share link.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin relative">
         {messages.length === 0 ? (
