@@ -1,6 +1,7 @@
 {
   "name": "ard",
   "version": "1.0.0",
+  "license": "(AGPL-3.0-or-later OR LicenseRef-Commercial)",
   "private": true,
   "scripts": {
     "dev": "next dev",

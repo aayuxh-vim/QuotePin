@@ -124,6 +124,9 @@ Three models with cascading deletes:
 | `npm run db:push` | Push schema changes to database |
 | `npm run db:studio` | Open Prisma Studio (database GUI) |
 
-## License
+## Licensing
 
-MIT
+This project is **dual-licensed**:
+
+- **AGPL-3.0** (open source): free for individuals and open-source use. If you modify and run it as a network service, you must provide the corresponding source to users under the AGPL.
+- **Commercial license**: for companies and organizations that want to use/host/modify this software without AGPL obligations. See `COMMERCIAL_LICENSE.md` or contact `aayushpatilsch@gmail.com`.
