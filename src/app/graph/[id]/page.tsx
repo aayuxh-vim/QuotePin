@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { ArrowLeft, Loader2, GitFork, Eye, EyeOff, Sun, Moon } from "lucide-react";
 import ConversationGraph from "@/components/graph/ConversationGraph";
 import type { Conversation, Message } from "@/lib/types";
+import { isLocalId, localGetConversation } from "@/lib/local-db";
 
 export default function GraphPage() {
   const params = useParams();
@@ -44,11 +45,18 @@ export default function GraphPage() {
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch(`/api/conversations/${id}`);
-        if (!res.ok) throw new Error("Conversation not found");
-        const data = await res.json();
-        setConversation(data);
-        setMessages(data.messages || []);
+        if (isLocalId(id)) {
+          const local = await localGetConversation(id);
+          if (!local) throw new Error("Conversation not found");
+          setConversation(local.conversation);
+          setMessages(local.messages || []);
+        } else {
+          const res = await fetch(`/api/conversations/${id}`);
+          if (!res.ok) throw new Error("Conversation not found");
+          const data = await res.json();
+          setConversation(data);
+          setMessages(data.messages || []);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load");
       } finally {

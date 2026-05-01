@@ -64,7 +64,17 @@ interface Props {
     suffix: string;
     question: string;
   }) => Promise<ReadableStream<Uint8Array> | null>;
-  onSaveAnnotation: (question: string, answer: string) => void;
+  onSaveAnnotation: (payload: {
+    messageId: string;
+    selectedText: string;
+    startOffset: number;
+    endOffset: number;
+    occurrence: number;
+    prefix: string;
+    suffix: string;
+    question: string;
+    answer: string;
+  }) => void;
   onReplyInChat?: (selectedText: string, question: string) => void;
 }
 
@@ -127,7 +137,17 @@ export default function MobileAnnotateSheet({
       }
       const finalText = await parseDataStream(stream, (acc) => setAnswer(acc));
       setAnswer(finalText);
-      onSaveAnnotation(question.trim(), finalText);
+      onSaveAnnotation({
+        messageId,
+        selectedText: selected.text,
+        startOffset: selected.start,
+        endOffset: selected.end,
+        occurrence: selected.occurrence,
+        prefix,
+        suffix,
+        question: question.trim(),
+        answer: finalText,
+      });
     } catch {
       setAnswer("An error occurred.");
     } finally {

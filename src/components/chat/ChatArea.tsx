@@ -2,13 +2,14 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useChat } from "ai/react";
-import { Send, Loader2, PanelLeftOpen, AlertCircle, Sparkles, GitFork, Sun, Moon, Share2, Check, Bookmark } from "lucide-react";
+import { Send, Loader2, PanelLeftOpen, PanelLeftClose, AlertCircle, Sparkles, GitFork, Sun, Moon, Share2, Check, Bookmark, X } from "lucide-react";
 import MessageBubble from "./MessageBubble";
 import SelectionPopup from "./SelectionPopup";
 import MobileAnnotateSheet from "./MobileAnnotateSheet";
 import { parseDataStream } from "@/lib/stream-parser";
 import type { Annotation, AppSettings, Message as DBMessage } from "@/lib/types";
 import { localAddAnnotation, localAppendMessage, localCreateConversation } from "@/lib/local-db";
+import { markdownToPlainText } from "@/lib/markdown-plain";
 
 interface LocalAnnotation {
   id: string;
@@ -49,6 +50,7 @@ interface Props {
   initialMessages: DBMessage[];
   onConversationCreated: (id: string) => void;
   onToggleSidebar: () => void;
+  onCollapseSidebar: () => void;
   sidebarCollapsed: boolean;
   mode: "local" | "cloud";
 }
@@ -67,6 +69,7 @@ export default function ChatArea({
   initialMessages,
   onConversationCreated,
   onToggleSidebar,
+  onCollapseSidebar,
   sidebarCollapsed,
   mode,
 }: Props) {
@@ -85,10 +88,19 @@ export default function ChatArea({
   const [shareEnabled, setShareEnabled] = useState<boolean>(false);
   const [shareToken, setShareToken] = useState<string | null>(null);
   const [bookmarks, setBookmarks] = useState<BookmarkItem[]>([]);
+  const [bookmarksHydratedFor, setBookmarksHydratedFor] = useState<string | null>(null);
+  const [pendingScrollTo, setPendingScrollTo] = useState<string | null>(null);
 
   const messageElsRef = useRef<Record<string, HTMLDivElement | null>>({});
 
   const bookmarkKey = currentConvoId ? `ard-bookmarks:${currentConvoId}` : null;
+
+  // If we're in a blank "New Chat" (no conversation yet), ensure we don't show stale bookmarks.
+  useEffect(() => {
+    if (bookmarkKey) return;
+    setBookmarksHydratedFor(null);
+    setBookmarks([]);
+  }, [bookmarkKey]);
 
   const {
     messages,
@@ -96,6 +108,7 @@ export default function ChatArea({
     handleInputChange,
     handleSubmit: sdkHandleSubmit,
     append,
+    reload,
     status,
     error,
     setMessages,
@@ -131,6 +144,8 @@ export default function ChatArea({
   useEffect(() => {
     convoIdRef.current = conversationId;
     setCurrentConvoId(conversationId);
+    messageElsRef.current = {};
+    setPendingScrollTo(null);
 
     const initMsgs = initialMessages.map((m) => ({
       id: m.id,
@@ -150,32 +165,39 @@ export default function ChatArea({
     setAnnotationPopup(null);
     setShareEnabled(false);
     setShareToken(null);
-    setBookmarks([]);
   }, [conversationId, initialMessages, setMessages]);
 
   useEffect(() => {
     if (!bookmarkKey) return;
+    // Prevent persisting stale/empty state to a new conversation key before we load.
+    setBookmarksHydratedFor(null);
+    setBookmarks([]);
     try {
       const raw = localStorage.getItem(bookmarkKey);
       if (!raw) {
         setBookmarks([]);
+        setBookmarksHydratedFor(bookmarkKey);
         return;
       }
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) setBookmarks(parsed);
+      setBookmarksHydratedFor(bookmarkKey);
     } catch {
       setBookmarks([]);
+      setBookmarksHydratedFor(bookmarkKey);
     }
   }, [bookmarkKey]);
 
   useEffect(() => {
     if (!bookmarkKey) return;
+    // Only persist once we've loaded bookmarks for this specific key.
+    if (bookmarksHydratedFor !== bookmarkKey) return;
     try {
       localStorage.setItem(bookmarkKey, JSON.stringify(bookmarks));
     } catch {
       // ignore
     }
-  }, [bookmarkKey, bookmarks]);
+  }, [bookmarkKey, bookmarks, bookmarksHydratedFor]);
 
   useEffect(() => {
     (async () => {
@@ -198,6 +220,16 @@ export default function ChatArea({
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  // If a bookmark was clicked before the message DOM mounted, scroll once it exists.
+  useEffect(() => {
+    if (!pendingScrollTo) return;
+    const el = messageElsRef.current[pendingScrollTo];
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      setPendingScrollTo(null);
+    }
+  }, [messages, pendingScrollTo]);
 
   // Local-mode persistence: write user+assistant messages to IndexedDB.
   useEffect(() => {
@@ -236,10 +268,10 @@ export default function ChatArea({
   }, [mode, messages, status]);
 
   const handleTextSelect = useCallback(
-    (text: string, rect: DOMRect, messageContent: string, occurrenceHint: number) => {
-      const matchingMsg = messages.find(
-        (m) => m.role === "assistant" && m.content === messageContent
-      );
+    (text: string, rect: DOMRect, messageContent: string, occurrenceHint: number, messageId?: string) => {
+      const matchingMsg = messageId
+        ? messages.find((m) => m.id === messageId)
+        : messages.find((m) => m.role === "assistant" && m.content === messageContent);
       setAnnotationPopup(null);
       setMobileSheet(null);
       setSelection({ text, rect, messageContent, messageId: matchingMsg?.id, occurrenceHint });
@@ -294,24 +326,32 @@ export default function ChatArea({
     })();
   }
 
-  function handleReplyInChat(selectedText: string, question: string) {
+  async function handleReplyInChat(selectedText: string, question: string) {
     if (!settings.apiKey) return;
     setSelection(null);
     setChatError(null);
 
-    // In local mode, ensure we do not hit auth-required persistence.
-    // Also create a local conversation if needed.
+    // In local mode we must ensure the conversation exists BEFORE appending,
+    // otherwise the messages won’t be associated and will disappear on reload.
     if (mode === "local" && !convoIdRef.current) {
-      localCreateConversation({
-        id: `local_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
-        provider: settings.provider,
-        model: settings.model,
-      }).then((convo) => {
+      try {
+        const convo = await localCreateConversation({
+          id: `local_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+          provider: settings.provider,
+          model: settings.model,
+        });
         convoIdRef.current = convo.id;
         setCurrentConvoId(convo.id);
         onConversationCreated(convo.id);
-      }).catch(() => {});
+      } catch {
+        // If we can’t create local convo, abort to avoid “orphan” messages.
+        return;
+      }
     }
+
+    // Ensure the assistant reply gets persisted after streaming completes (local mode).
+    pendingAssistantSaveRef.current = mode === "local";
+    lastSavedAssistantIdRef.current = null;
 
     append(
       { role: "user", content: `Regarding "${selectedText}":\n\n${question}` },
@@ -354,7 +394,9 @@ export default function ChatArea({
         provider: settings.provider,
         model: settings.model,
         apiKey: settings.apiKey,
-        persist: mode === "cloud",
+        // In cloud mode we persist exactly once via POST /api/annotations (on close),
+        // to avoid double-saves (popup route also supports persistence).
+        persist: false,
       }),
     });
 
@@ -455,6 +497,40 @@ export default function ChatArea({
         answer,
       }).catch(() => {});
     }
+
+    if (mode === "cloud" && selection.messageId) {
+      // Persist to server so it survives chat switching/reload.
+      fetch("/api/annotations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messageId: selection.messageId,
+          selectedText: selection.text,
+          startOffset,
+          endOffset,
+          occurrence: selection.occurrenceHint,
+          prefix,
+          suffix,
+          question,
+          answer,
+        }),
+      })
+        .then(async (res) => {
+          if (!res.ok) throw new Error("save_failed");
+          const saved = await res.json();
+          if (!saved?.id) return;
+          // Replace the optimistic local id with the real DB id.
+          setAnnotationsMap((prev) => {
+            const msgId = selection.messageId || "";
+            const list = prev[msgId] || [];
+            const next = list.map((a) => (a.id === newAnnotation.id ? { ...a, id: saved.id, createdAt: saved.createdAt || a.createdAt } : a));
+            return { ...prev, [msgId]: next };
+          });
+        })
+        .catch(() => {
+          // keep optimistic annotation in UI even if save fails
+        });
+    }
   }
 
   const hasApiKey = !!settings.apiKey;
@@ -469,12 +545,51 @@ export default function ChatArea({
     onSaveSettings({ ...settings, theme: nextTheme });
   }
 
+  async function handleRetryMessage(messageId: string) {
+    if (!settings.apiKey) return;
+    const convoId = convoIdRef.current;
+    if (!convoId) return;
+
+    // Find the assistant message we want to retry, then trim to the previous user message.
+    const idx = messages.findIndex((m) => m.id === messageId);
+    if (idx === -1) return;
+
+    let userIdx = -1;
+    for (let i = idx; i >= 0; i--) {
+      if (messages[i]?.role === "user") {
+        userIdx = i;
+        break;
+      }
+    }
+    if (userIdx === -1) return;
+
+    const trimmed = messages.slice(0, userIdx + 1);
+    setMessages(trimmed);
+
+    pendingAssistantSaveRef.current = mode === "local";
+    lastSavedAssistantIdRef.current = null;
+
+    reload({
+      body: {
+        conversationId: convoId,
+        provider: settings.provider,
+        model: settings.model,
+        apiKey: settings.apiKey,
+        persist: mode === "cloud",
+      },
+    });
+  }
+
   return (
     <div className="flex-1 flex flex-col h-full min-w-0">
       <header className="h-12 flex items-center gap-3 px-4 border-b border-border flex-shrink-0">
-        {sidebarCollapsed && (
+        {sidebarCollapsed ? (
           <button onClick={onToggleSidebar} className="p-1 rounded-md hover:bg-muted transition-colors">
             <PanelLeftOpen size={18} />
+          </button>
+        ) : (
+          <button onClick={onCollapseSidebar} className="p-1 rounded-md hover:bg-muted transition-colors">
+            <PanelLeftClose size={18} />
           </button>
         )}
         <h1 className="font-semibold text-sm">ARD</h1>
@@ -584,7 +699,8 @@ export default function ChatArea({
                     setBookmarks((prev) => {
                       const exists = prev.some((b) => b.messageId === messageId);
                       if (exists) return prev.filter((b) => b.messageId !== messageId);
-                      const preview = content.length > 48 ? content.slice(0, 48).trim() + "…" : content.trim();
+                      const plain = markdownToPlainText(content);
+                      const preview = plain.length > 48 ? plain.slice(0, 48).trim() + "…" : plain.trim();
                       return [
                         ...prev,
                         { messageId, role, preview, createdAt: new Date().toISOString() },
@@ -593,6 +709,7 @@ export default function ChatArea({
                   }}
                   isBookmarked={bookmarks.some((b) => b.messageId === msg.id)}
                   messageId={msg.id}
+                  onRetryMessage={handleRetryMessage}
                 />
               </div>
             ))}
@@ -607,7 +724,7 @@ export default function ChatArea({
           </div>
         )}
 
-        {bookmarks.length > 0 && (
+        {currentConvoId && bookmarks.length > 0 && (
           <aside className="hidden lg:block fixed top-16 right-4 w-56 max-h-[calc(100vh-96px)] border border-border bg-background/80 backdrop-blur px-2 py-3 shadow-lg rounded-xl">
             <div className="flex items-center gap-2 px-1.5 pb-2 border-b border-border/60">
               <Bookmark size={14} className="text-annotation" />
@@ -619,20 +736,43 @@ export default function ChatArea({
                 .slice()
                 .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
                 .map((b) => (
-                  <button
+                  <div
                     key={b.messageId}
-                    onClick={() => {
-                      const el = messageElsRef.current[b.messageId];
-                      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-                    }}
                     className="w-full text-left px-2 py-1.5 rounded-md border border-border/60 hover:bg-muted transition-colors"
                     title="Jump to message"
                   >
-                    <div className="text-[10px] text-muted-foreground">
-                      {b.role === "user" ? "You" : "AI"}
+                    <div className="flex items-start gap-2">
+                      <button
+                        onClick={() => {
+                          const el = messageElsRef.current[b.messageId];
+                          if (el) {
+                            el.scrollIntoView({ behavior: "smooth", block: "start" });
+                            return;
+                          }
+                          // If the message isn't mounted yet (common right after switching chats),
+                          // queue the scroll and try again after render.
+                          setPendingScrollTo(b.messageId);
+                        }}
+                        className="flex-1 text-left"
+                      >
+                        <div className="text-[10px] text-muted-foreground">
+                          {b.role === "user" ? "You" : "AI"}
+                        </div>
+                        <div className="text-xs leading-snug line-clamp-2">{b.preview || "(empty)"}</div>
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setBookmarks((prev) => prev.filter((x) => x.messageId !== b.messageId));
+                        }}
+                        className="p-1 rounded-md hover:bg-background/70 text-muted-foreground hover:text-foreground transition-colors"
+                        title="Remove bookmark"
+                      >
+                        <X size={12} />
+                      </button>
                     </div>
-                    <div className="text-xs leading-snug line-clamp-2">{b.preview || "(empty)"}</div>
-                  </button>
+                  </div>
                 ))}
             </div>
           </aside>
@@ -646,8 +786,8 @@ export default function ChatArea({
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="border-t border-border p-4 flex-shrink-0">
-        <div className="max-w-4xl mx-auto flex items-end gap-3">
+      <form onSubmit={handleSubmit} className="border-t border-border h-16 px-4 flex items-center flex-shrink-0">
+        <div className="max-w-4xl mx-auto flex items-center gap-3 w-full">
           <textarea
             value={input}
             onChange={handleInputChange}
@@ -660,8 +800,8 @@ export default function ChatArea({
             placeholder={hasApiKey ? "Type a message..." : "Set API key in settings first"}
             disabled={isBusy || !hasApiKey}
             rows={1}
-            className="flex-1 resize-none px-4 py-2.5 bg-muted border border-input rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 max-h-32"
-            style={{ minHeight: "42px" }}
+            className="flex-1 resize-none px-4 py-2 bg-muted border border-input rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50 max-h-32"
+            style={{ minHeight: "40px" }}
             onInput={(e) => {
               const target = e.target as HTMLTextAreaElement;
               target.style.height = "auto";
@@ -671,7 +811,7 @@ export default function ChatArea({
           <button
             type="submit"
             disabled={!input.trim() || isBusy || !hasApiKey}
-            className="p-2.5 rounded-xl bg-primary text-primary-foreground disabled:opacity-30 hover:opacity-90 transition-opacity flex-shrink-0"
+            className="h-10 w-10 inline-flex items-center justify-center rounded-xl bg-primary text-primary-foreground disabled:opacity-30 hover:opacity-90 transition-opacity flex-shrink-0"
           >
             {isBusy ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
           </button>
@@ -709,28 +849,73 @@ export default function ChatArea({
               question: payload.question,
             });
           }}
-          onSaveAnnotation={(q, a) => {
-            // Save into local UI map immediately (same behavior as desktop popup).
-            const msgId = mobileSheet.messageId;
-            const content = mobileSheet.messageContent;
+          onSaveAnnotation={(payload) => {
+            const msgId = payload.messageId;
             const newAnnotation: LocalAnnotation = {
               id: `ann-${Date.now()}`,
               messageId: msgId,
-              // Mobile sheet saves server-side to the right offsets; we keep a best-effort local copy.
-              selectedText: q ? "(mobile)" : "(mobile)",
-              startOffset: 0,
-              endOffset: 0,
-              occurrence: 0,
-              prefix: "",
-              suffix: "",
-              question: q,
-              answer: a,
+              selectedText: payload.selectedText,
+              startOffset: payload.startOffset,
+              endOffset: payload.endOffset,
+              occurrence: payload.occurrence,
+              prefix: payload.prefix,
+              suffix: payload.suffix,
+              question: payload.question,
+              answer: payload.answer,
               createdAt: new Date().toISOString(),
             };
+
             setAnnotationsMap((prev) => ({
               ...prev,
               [msgId]: [...(prev[msgId] || []), newAnnotation],
             }));
+
+            if (mode === "local") {
+              localAddAnnotation({
+                messageId: msgId,
+                selectedText: payload.selectedText,
+                startOffset: payload.startOffset,
+                endOffset: payload.endOffset,
+                occurrence: payload.occurrence,
+                prefix: payload.prefix,
+                suffix: payload.suffix,
+                question: payload.question,
+                answer: payload.answer,
+              }).catch(() => {});
+            }
+
+            if (mode === "cloud") {
+              fetch("/api/annotations", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  messageId: msgId,
+                  selectedText: payload.selectedText,
+                  startOffset: payload.startOffset,
+                  endOffset: payload.endOffset,
+                  occurrence: payload.occurrence,
+                  prefix: payload.prefix,
+                  suffix: payload.suffix,
+                  question: payload.question,
+                  answer: payload.answer,
+                }),
+              })
+                .then(async (res) => {
+                  if (!res.ok) throw new Error("save_failed");
+                  const saved = await res.json();
+                  if (!saved?.id) return;
+                  setAnnotationsMap((prev) => {
+                    const list = prev[msgId] || [];
+                    const next = list.map((a) =>
+                      a.id === newAnnotation.id
+                        ? { ...a, id: saved.id, createdAt: saved.createdAt || a.createdAt }
+                        : a
+                    );
+                    return { ...prev, [msgId]: next };
+                  });
+                })
+                .catch(() => {});
+            }
           }}
           onReplyInChat={handleReplyInChat}
         />

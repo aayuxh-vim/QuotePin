@@ -16,6 +16,7 @@ import "@xyflow/react/dist/style.css";
 import dagre from "dagre";
 import { User, Bot, Sparkles, X } from "lucide-react";
 import type { Message } from "@/lib/types";
+import { markdownToPlainText } from "@/lib/markdown-plain";
 
 interface Props {
   messages: Message[];
@@ -161,9 +162,8 @@ export default function ConversationGraph({ messages, title, showAnnotations = t
       const msg = messages[i];
       const nodeId = `msg-${msg.id}`;
 
-      const contentPreview = msg.content.length > 120
-        ? msg.content.slice(0, 120) + "..."
-        : msg.content;
+      const plain = markdownToPlainText(msg.content);
+      const contentPreview = plain.length > 120 ? plain.slice(0, 120) + "..." : plain;
 
       if (msg.role === "user") {
         nodes.push({

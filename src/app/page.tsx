@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { PanelLeftClose } from "lucide-react";
 import Sidebar from "@/components/sidebar/Sidebar";
 import ChatArea from "@/components/chat/ChatArea";
 import SettingsModal from "@/components/settings/SettingsModal";
@@ -214,16 +213,23 @@ export default function Home() {
         onDelete={handleDeleteConversation}
         onOpenSettings={() => setSettingsOpen(true)}
         collapsed={sidebarCollapsed}
+        authAction={
+          userEmail
+            ? {
+                label: "Sign out",
+                title: userEmail,
+                kind: "signout",
+                onClick: async () => {
+                  if (!supabase) return;
+                  await supabase.auth.signOut();
+                  setActiveConvoId(null);
+                  setActiveMessages([]);
+                  setConversations([]);
+                },
+              }
+            : { label: "Sign in to sync", title: "Sign in to sync across devices", href: "/auth", kind: "signin" }
+        }
       />
-
-      {!sidebarCollapsed && (
-        <button
-          onClick={() => setSidebarCollapsed(true)}
-          className="absolute top-3 left-[248px] z-10 p-1 rounded-md hover:bg-muted transition-colors text-muted-foreground"
-        >
-          <PanelLeftClose size={16} />
-        </button>
-      )}
 
       <ChatArea
         conversationId={activeConvoId}
@@ -232,6 +238,7 @@ export default function Home() {
         initialMessages={activeMessages}
         onConversationCreated={handleConversationCreated}
         onToggleSidebar={() => setSidebarCollapsed(false)}
+        onCollapseSidebar={() => setSidebarCollapsed(true)}
         sidebarCollapsed={sidebarCollapsed}
         mode={mode}
       />
@@ -243,29 +250,30 @@ export default function Home() {
         onSave={handleSaveSettings}
       />
 
-      {!userEmail && (
-        <a
-          href="/auth"
-          className="fixed bottom-4 right-4 px-3 py-2 rounded-lg bg-card border border-border shadow-lg text-xs hover:bg-muted transition-colors"
-          title="Sign in to sync across devices"
-        >
-          Sign in to sync
-        </a>
-      )}
-      {userEmail && (
-        <button
-          onClick={async () => {
-            if (!supabase) return;
-            await supabase.auth.signOut();
-            setActiveConvoId(null);
-            setActiveMessages([]);
-            setConversations([]);
-          }}
-          className="fixed bottom-4 right-4 px-3 py-2 rounded-lg bg-card border border-border shadow-lg text-xs hover:bg-muted transition-colors"
-          title={userEmail}
-        >
-          Sign out
-        </button>
+      {sidebarCollapsed && (
+        userEmail ? (
+          <button
+            onClick={async () => {
+              if (!supabase) return;
+              await supabase.auth.signOut();
+              setActiveConvoId(null);
+              setActiveMessages([]);
+              setConversations([]);
+            }}
+            className="fixed bottom-20 right-4 px-3 py-2 rounded-lg bg-card border border-border shadow-lg text-xs hover:bg-muted transition-colors"
+            title={userEmail}
+          >
+            Sign out
+          </button>
+        ) : (
+          <a
+            href="/auth"
+            className="fixed bottom-20 right-4 px-3 py-2 rounded-lg bg-card border border-border shadow-lg text-xs hover:bg-muted transition-colors"
+            title="Sign in to sync across devices"
+          >
+            Sign in to sync
+          </a>
+        )
       )}
 
       <SyncPromptModal

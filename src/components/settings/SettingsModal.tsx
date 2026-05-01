@@ -153,11 +153,10 @@ export default function SettingsModal({ open, onClose, settings, onSave }: Props
                 <button
                   key={value}
                   onClick={() => setLocal({ ...local, theme: value })}
-                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-sm border transition-colors ${
-                    local.theme === value
+                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-sm border transition-colors ${local.theme === value
                       ? "bg-primary text-primary-foreground border-primary"
                       : "border-input hover:bg-muted"
-                  }`}
+                    }`}
                 >
                   <Icon size={14} />
                   {label}

@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 
+const isDev = process.env.NODE_ENV !== "production";
+
 const csp = [
   "default-src 'self'",
   "base-uri 'self'",
@@ -9,9 +11,10 @@ const csp = [
   "font-src 'self' data:",
   "style-src 'self' 'unsafe-inline'",
   // Next.js uses inline scripts for hydration; strict CSP would require nonces.
-  "script-src 'self' 'unsafe-inline'",
-  // Supabase auth runs in the browser.
-  "connect-src 'self' https://*.supabase.co https://*.supabase.com",
+  // In dev, Next also relies on eval for tooling/source maps.
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
+  // Supabase auth runs in the browser. In dev, allow HMR websocket.
+  `connect-src 'self' https://*.supabase.co https://*.supabase.com${isDev ? " ws: http://localhost:* http://127.0.0.1:*" : ""}`,
   "form-action 'self'",
 ].join("; ");
 

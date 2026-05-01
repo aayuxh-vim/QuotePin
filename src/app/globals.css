@@ -120,6 +120,12 @@
   @apply text-annotation underline;
 }
 
+.inline-annotation {
+  /* Click-target-friendly underline + subtle highlight; actual colors come from theme vars. */
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
 .scrollbar-thin::-webkit-scrollbar {
   width: 6px;
 }

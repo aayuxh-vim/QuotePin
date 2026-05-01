@@ -75,18 +75,16 @@ export default function AuthPage() {
             <button
               type="button"
               onClick={() => setMode("signIn")}
-              className={`flex-1 px-3 py-2 rounded-md text-sm border transition-colors ${
-                mode === "signIn" ? "bg-primary text-primary-foreground border-primary" : "border-input hover:bg-muted"
-              }`}
+              className={`flex-1 px-3 py-2 rounded-md text-sm border transition-colors ${mode === "signIn" ? "bg-primary text-primary-foreground border-primary" : "border-input hover:bg-muted"
+                }`}
             >
               Sign in
             </button>
             <button
               type="button"
               onClick={() => setMode("signUp")}
-              className={`flex-1 px-3 py-2 rounded-md text-sm border transition-colors ${
-                mode === "signUp" ? "bg-primary text-primary-foreground border-primary" : "border-input hover:bg-muted"
-              }`}
+              className={`flex-1 px-3 py-2 rounded-md text-sm border transition-colors ${mode === "signUp" ? "bg-primary text-primary-foreground border-primary" : "border-input hover:bg-muted"
+                }`}
             >
               Sign up
             </button>

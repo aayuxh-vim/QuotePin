@@ -1,23 +1,31 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { User, Bot, Sparkles, Bookmark, BookmarkCheck } from "lucide-react";
+import { User, Bot, Sparkles, Bookmark, BookmarkCheck, Copy, RotateCw } from "lucide-react";
 import type { Annotation } from "@/lib/types";
 import AnnotationBadge from "./AnnotationBadge";
 import { resolveAnnotationAnchor } from "@/lib/annotation-anchor";
+import { applyInlineAnnotations, clearInlineAnnotations } from "@/lib/inline-annotations";
 
 interface Props {
   role: "user" | "assistant";
   content: string;
   annotations: Annotation[];
   onAnnotationClick: (annotation: Annotation, rect: DOMRect) => void;
-  onTextSelect: (text: string, rect: DOMRect, messageContent: string, occurrenceHint: number) => void;
+  onTextSelect: (
+    text: string,
+    rect: DOMRect,
+    messageContent: string,
+    occurrenceHint: number,
+    messageId?: string
+  ) => void;
   onMobileAnnotate?: (messageId: string, messageContent: string) => void;
   onToggleBookmark?: (messageId: string, role: "user" | "assistant", content: string) => void;
   isBookmarked?: boolean;
   messageId?: string;
+  onRetryMessage?: (messageId: string) => void;
 }
 
 function resolveForChips(content: string, annotations: Annotation[]) {
@@ -52,10 +60,13 @@ export default function MessageBubble({
   onToggleBookmark,
   isBookmarked,
   messageId,
+  onRetryMessage,
 }: Props) {
   const isUser = role === "user";
 
   const annotationChips = useMemo(() => resolveForChips(content, annotations), [content, annotations]);
+  const [copied, setCopied] = useState(false);
+  const markdownRootRef = useRef<HTMLDivElement | null>(null);
 
   function handleMouseUp() {
     if (isUser) return;
@@ -71,23 +82,56 @@ export default function MessageBubble({
 
       let occurrenceHint = 0;
       try {
-        // Approximate which occurrence the user selected by using the rendered plain text.
-        const rendered = (messageRoot?.innerText || "").replace(/\s+/g, " ");
-        const before = rendered.slice(0, Math.max(0, rendered.indexOf(text)));
-        if (before) {
-          let idx = 0;
-          let count = 0;
-          while (true) {
-            const found = rendered.indexOf(text, idx);
-            if (found === -1 || found >= before.length) break;
-            count += 1;
-            idx = found + text.length;
+        // Compute which occurrence the user selected by using the DOM Range start position,
+        // not indexOf() which always biases to the first match.
+        const container = messageRoot || (root as HTMLElement | null);
+        if (container) {
+          const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, {
+            acceptNode(node) {
+              if (!(node instanceof Text)) return NodeFilter.FILTER_REJECT;
+              if (!node.nodeValue) return NodeFilter.FILTER_REJECT;
+              return NodeFilter.FILTER_ACCEPT;
+            },
+          });
+
+          let full = "";
+          let startIndex = 0;
+          let foundStart = false;
+
+          const startNode = range.startContainer;
+          const startOffsetInNode = range.startOffset;
+
+          while (walker.nextNode()) {
+            const node = walker.currentNode as Text;
+            const value = (node.nodeValue || "").replace(/\u00a0/g, " ");
+
+            if (!foundStart) {
+              if (node === startNode) {
+                startIndex = full.length + Math.max(0, Math.min(value.length, startOffsetInNode));
+                foundStart = true;
+              }
+            }
+
+            full += value;
           }
-          occurrenceHint = count;
+
+          if (full && foundStart) {
+            const before = full.slice(0, Math.max(0, startIndex));
+            let idx = 0;
+            let count = 0;
+            while (true) {
+              const found = before.indexOf(text, idx);
+              if (found === -1) break;
+              count += 1;
+              idx = found + Math.max(1, text.length);
+            }
+            // occurrenceHint = how many occurrences appeared BEFORE the selected one
+            occurrenceHint = count;
+          }
         }
       } catch {}
       sel.removeAllRanges();
-      onTextSelect(text, rect, content, occurrenceHint);
+      onTextSelect(text, rect, content, occurrenceHint, messageId);
       if (!hintDismissed) dismissHint();
     }
   }
@@ -101,6 +145,28 @@ export default function MessageBubble({
       setHintDismissed(localStorage.getItem("ard-hint-dismissed") === "true");
     } catch {}
   }, [isUser]);
+
+  // Inline annotations: decorate rendered markdown without altering message content.
+  useEffect(() => {
+    if (isUser) return;
+    const root = markdownRootRef.current;
+    if (!root) return;
+
+    if (!annotations?.length) {
+      clearInlineAnnotations(root);
+      return;
+    }
+
+    applyInlineAnnotations({
+      root,
+      annotations,
+      onClick: onAnnotationClick,
+    });
+
+    return () => {
+      clearInlineAnnotations(root);
+    };
+  }, [isUser, content, annotations, onAnnotationClick]);
 
   function dismissHint() {
     setHintDismissed(true);
@@ -116,14 +182,40 @@ export default function MessageBubble({
       )}
       <div className={`${isUser ? "max-w-[75%]" : "flex-1 max-w-3xl"}`}>
         <div className="relative group">
-          {onToggleBookmark && messageId && (
-            <button
-              onClick={() => onToggleBookmark(messageId, role, content)}
-              className="absolute -top-2 -right-2 p-1.5 rounded-md bg-card/70 backdrop-blur border border-border shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-muted"
-              title={isBookmarked ? "Remove bookmark" : "Bookmark this message"}
-            >
-              {isBookmarked ? <BookmarkCheck size={14} className="text-annotation" /> : <Bookmark size={14} />}
-            </button>
+          {!isUser && messageId && (
+            <div className="absolute -top-2 -right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(content);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 900);
+                  } catch {
+                    // ignore
+                  }
+                }}
+                className="p-1.5 rounded-md bg-card/70 backdrop-blur border border-border shadow-sm hover:bg-muted"
+                title={copied ? "Copied" : "Copy"}
+              >
+                <Copy size={14} />
+              </button>
+              <button
+                onClick={() => onRetryMessage?.(messageId)}
+                className="p-1.5 rounded-md bg-card/70 backdrop-blur border border-border shadow-sm hover:bg-muted"
+                title="Retry"
+              >
+                <RotateCw size={14} />
+              </button>
+              {onToggleBookmark && (
+                <button
+                  onClick={() => onToggleBookmark(messageId, role, content)}
+                  className="p-1.5 rounded-md bg-card/70 backdrop-blur border border-border shadow-sm hover:bg-muted"
+                  title={isBookmarked ? "Remove bookmark" : "Bookmark this message"}
+                >
+                  {isBookmarked ? <BookmarkCheck size={14} className="text-annotation" /> : <Bookmark size={14} />}
+                </button>
+              )}
+            </div>
           )}
 
           <div
@@ -138,7 +230,7 @@ export default function MessageBubble({
           {isUser ? (
             <p className="text-sm whitespace-pre-wrap">{content}</p>
           ) : (
-            <div className="markdown-body text-sm">
+            <div ref={markdownRootRef} className="markdown-body text-sm">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
             </div>
           )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageSquarePlus, Settings, Trash2, MessageSquare } from "lucide-react";
+import { MessageSquarePlus, Settings, Trash2, MessageSquare, LogIn, LogOut } from "lucide-react";
 import type { Conversation } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -12,6 +12,7 @@ interface Props {
   onDelete: (id: string) => void;
   onOpenSettings: () => void;
   collapsed: boolean;
+  authAction?: { label: string; title?: string; href?: string; onClick?: () => void; kind: "signin" | "signout" };
 }
 
 export default function Sidebar({
@@ -22,15 +23,16 @@ export default function Sidebar({
   onDelete,
   onOpenSettings,
   collapsed,
+  authAction,
 }: Props) {
   if (collapsed) return null;
 
   return (
     <aside className="w-64 h-full bg-sidebar border-r border-sidebar-border flex flex-col flex-shrink-0">
-      <div className="p-3 border-b border-sidebar-border">
+      <div className="h-12 px-3 flex items-center border-b border-sidebar-border">
         <button
           onClick={onNew}
-          className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium hover:bg-muted transition-colors"
+          className="w-full h-9 flex items-center gap-2 px-3 rounded-lg text-sm font-medium hover:bg-muted transition-colors"
         >
           <MessageSquarePlus size={16} />
           New Chat
@@ -69,10 +71,31 @@ export default function Sidebar({
         ))}
       </div>
 
-      <div className="p-3 border-t border-sidebar-border">
+      <div className="px-3 py-3 border-t border-sidebar-border space-y-2">
+        {authAction && (
+          authAction.href ? (
+            <a
+              href={authAction.href}
+              className="w-full h-9 flex items-center gap-2 px-3 rounded-lg text-sm hover:bg-muted transition-colors text-muted-foreground"
+              title={authAction.title}
+            >
+              {authAction.kind === "signin" ? <LogIn size={16} /> : <LogOut size={16} />}
+              <span>{authAction.label}</span>
+            </a>
+          ) : (
+            <button
+              onClick={authAction.onClick}
+              className="w-full h-9 flex items-center gap-2 px-3 rounded-lg text-sm hover:bg-muted transition-colors text-muted-foreground"
+              title={authAction.title}
+            >
+              {authAction.kind === "signin" ? <LogIn size={16} /> : <LogOut size={16} />}
+              <span>{authAction.label}</span>
+            </button>
+          )
+        )}
         <button
           onClick={onOpenSettings}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-muted transition-colors text-muted-foreground"
+          className="w-full h-9 flex items-center gap-2 px-3 rounded-lg text-sm hover:bg-muted transition-colors text-muted-foreground"
         >
           <Settings size={16} />
           Settings
