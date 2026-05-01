@@ -10,6 +10,7 @@ import { parseDataStream } from "@/lib/stream-parser";
 import type { Annotation, AppSettings, Message as DBMessage } from "@/lib/types";
 import { localAddAnnotation, localAppendMessage, localCreateConversation } from "@/lib/local-db";
 import { markdownToPlainText } from "@/lib/markdown-plain";
+import { findNthIndex } from "@/lib/utils";
 
 interface LocalAnnotation {
   id: string;
@@ -451,18 +452,6 @@ export default function ChatArea({
     const content = selection.messageContent;
     const selected = selection.text;
 
-    function findNthIndex(haystack: string, needle: string, n: number) {
-      if (!needle) return -1;
-      let idx = -1;
-      let from = 0;
-      for (let i = 0; i <= n; i++) {
-        idx = haystack.indexOf(needle, from);
-        if (idx === -1) return -1;
-        from = idx + needle.length;
-      }
-      return idx;
-    }
-
     const startOffset = Math.max(0, findNthIndex(content, selected, selection.occurrenceHint));
     const endOffset = startOffset + selected.length;
 
@@ -486,18 +475,6 @@ export default function ChatArea({
     if (!selection) return;
     const content = selection.messageContent;
     const selected = selection.text;
-
-    function findNthIndex(haystack: string, needle: string, n: number) {
-      if (!needle) return -1;
-      let idx = -1;
-      let from = 0;
-      for (let i = 0; i <= n; i++) {
-        idx = haystack.indexOf(needle, from);
-        if (idx === -1) return -1;
-        from = idx + needle.length;
-      }
-      return idx;
-    }
 
     const startOffset = Math.max(0, findNthIndex(content, selected, selection.occurrenceHint));
     const endOffset = startOffset + selected.length;

@@ -1,15 +1,14 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Sidebar from "@/components/sidebar/Sidebar";
 import ChatArea from "@/components/chat/ChatArea";
 import SettingsModal from "@/components/settings/SettingsModal";
 import type { Conversation, Message, AppSettings } from "@/lib/types";
-import { createSupabaseBrowserClient } from "@/lib/supabase/client";
-import { getCloudDataSource, getLocalDataSource } from "@/lib/data-source";
-import type { DataSource } from "@/lib/data-source";
-import { localExportAll, localListConversations } from "@/lib/local-db";
+import { localExportAll } from "@/lib/local-db";
 import SyncPromptModal from "@/components/auth/SyncPromptModal";
+import { useAuthSync } from "@/lib/hooks/useAuthSync";
+import { useTheme } from "next-themes";
 
 const DEFAULT_SETTINGS: AppSettings = {
   provider: "openai",
@@ -27,18 +26,7 @@ function getStoredSettings(): AppSettings {
   return DEFAULT_SETTINGS;
 }
 
-function applyTheme(theme: string) {
-  if (typeof window === "undefined") return;
-  const root = document.documentElement;
-  if (theme === "dark") {
-    root.classList.add("dark");
-  } else if (theme === "light") {
-    root.classList.remove("dark");
-  } else {
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    root.classList.toggle("dark", prefersDark);
-  }
-}
+
 
 export default function Home() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -48,85 +36,28 @@ export default function Home() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [authReady, setAuthReady] = useState(false);
-  const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [mode, setMode] = useState<"local" | "cloud">("local");
-  const [dataSource, setDataSource] = useState<DataSource>(() => getLocalDataSource());
-  const [showSyncPrompt, setShowSyncPrompt] = useState(false);
-  const [localConvoCount, setLocalConvoCount] = useState(0);
-  const prevSignedInRef = useRef(false);
+  const {
+    supabase,
+    authReady,
+    userEmail,
+    mode,
+    dataSource,
+    showSyncPrompt,
+    setShowSyncPrompt,
+    localConvoCount,
+  } = useAuthSync();
 
-  const supabase = useMemo(() => {
-    try {
-      return createSupabaseBrowserClient();
-    } catch {
-      return null;
-    }
-  }, []);
+  const { setTheme } = useTheme();
 
   useEffect(() => {
     const s = getStoredSettings();
     setSettings(s);
-    applyTheme(s.theme);
+    setTheme(s.theme);
     if (window.innerWidth < 768) setSidebarCollapsed(true);
     setLoaded(true);
-  }, []);
+  }, [setTheme]);
 
-  useEffect(() => {
-    (async () => {
-      if (!supabase) {
-        setAuthReady(true);
-        setMode("local");
-        setDataSource(getLocalDataSource());
-        return;
-      }
 
-      // Handle Supabase PKCE redirect (e.g. email links) by exchanging `code` for a session.
-      // Without this, the app can land on `/?code=...` and still be unauthenticated.
-      try {
-        const url = new URL(window.location.href);
-        const code = url.searchParams.get("code");
-        if (code) {
-          const { error } = await supabase.auth.exchangeCodeForSession(code);
-          if (!error) {
-            url.searchParams.delete("code");
-            window.history.replaceState({}, "", url.toString());
-          }
-        }
-      } catch {
-        // ignore
-      }
-
-      const { data } = await supabase.auth.getSession();
-      setUserEmail(data.session?.user?.email ?? null);
-      const signedIn = !!data.session;
-      prevSignedInRef.current = signedIn;
-      setMode(signedIn ? "cloud" : "local");
-      setDataSource(signedIn ? getCloudDataSource() : getLocalDataSource());
-      setAuthReady(true);
-      const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-        setUserEmail(session?.user?.email ?? null);
-        const signedInNow = !!session;
-        const wasSignedIn = prevSignedInRef.current;
-        prevSignedInRef.current = signedInNow;
-        setMode(signedInNow ? "cloud" : "local");
-        setDataSource(signedInNow ? getCloudDataSource() : getLocalDataSource());
-
-        if (!wasSignedIn && signedInNow) {
-          localListConversations()
-            .then((list) => {
-              setLocalConvoCount(list.length);
-              if (list.length > 0) setShowSyncPrompt(true);
-            })
-            .catch(() => {});
-        }
-      });
-
-      return () => {
-        sub.subscription.unsubscribe();
-      };
-    })();
-  }, [supabase]);
 
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
@@ -179,8 +110,52 @@ export default function Home() {
   function handleSaveSettings(newSettings: AppSettings) {
     setSettings(newSettings);
     localStorage.setItem("quotepin-settings", JSON.stringify(newSettings));
-    applyTheme(newSettings.theme);
+    setTheme(newSettings.theme);
   }
+
+  const handleSignOut = async () => {
+    if (!supabase) return;
+    await supabase.auth.signOut();
+    setActiveConvoId(null);
+    setActiveMessages([]);
+    setConversations([]);
+  };
+
+  const getSidebarAuthAction = () => {
+    if (userEmail) {
+      return {
+        label: "Sign out",
+        title: userEmail,
+        kind: "signout" as const,
+        onClick: handleSignOut,
+      };
+    }
+
+    return {
+      label: "Sign in to sync",
+      title: "Sign in to sync across devices",
+      href: "/auth",
+      kind: "signin" as const,
+    };
+  };
+
+  const renderFloatingAuthAction = () => {
+    const className = "fixed bottom-20 right-4 px-3 py-2 rounded-lg bg-card border border-border shadow-lg text-xs hover:bg-muted transition-colors";
+
+    if (userEmail) {
+      return (
+        <button onClick={handleSignOut} className={className} title={userEmail}>
+          Sign out
+        </button>
+      );
+    }
+
+    return (
+      <a href="/auth" className={className} title="Sign in to sync across devices">
+        Sign in to sync
+      </a>
+    );
+  };
 
   function handleConversationCreated(id: string) {
     setActiveConvoId(id);
@@ -213,22 +188,7 @@ export default function Home() {
         onDelete={handleDeleteConversation}
         onOpenSettings={() => setSettingsOpen(true)}
         collapsed={sidebarCollapsed}
-        authAction={
-          userEmail
-            ? {
-                label: "Sign out",
-                title: userEmail,
-                kind: "signout",
-                onClick: async () => {
-                  if (!supabase) return;
-                  await supabase.auth.signOut();
-                  setActiveConvoId(null);
-                  setActiveMessages([]);
-                  setConversations([]);
-                },
-              }
-            : { label: "Sign in to sync", title: "Sign in to sync across devices", href: "/auth", kind: "signin" }
-        }
+        authAction={getSidebarAuthAction()}
       />
 
       <ChatArea
@@ -250,31 +210,7 @@ export default function Home() {
         onSave={handleSaveSettings}
       />
 
-      {sidebarCollapsed && (
-        userEmail ? (
-          <button
-            onClick={async () => {
-              if (!supabase) return;
-              await supabase.auth.signOut();
-              setActiveConvoId(null);
-              setActiveMessages([]);
-              setConversations([]);
-            }}
-            className="fixed bottom-20 right-4 px-3 py-2 rounded-lg bg-card border border-border shadow-lg text-xs hover:bg-muted transition-colors"
-            title={userEmail}
-          >
-            Sign out
-          </button>
-        ) : (
-          <a
-            href="/auth"
-            className="fixed bottom-20 right-4 px-3 py-2 rounded-lg bg-card border border-border shadow-lg text-xs hover:bg-muted transition-colors"
-            title="Sign in to sync across devices"
-          >
-            Sign in to sync
-          </a>
-        )
-      )}
+      {sidebarCollapsed && renderFloatingAuthAction()}
 
       <SyncPromptModal
         open={showSyncPrompt}
