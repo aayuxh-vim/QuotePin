@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Loader2, Sparkles, GitFork } from "lucide-react";
+import { ArrowLeft, Loader2, Sparkles, MessageSquare, GitFork } from "lucide-react";
 import type { Conversation, Message } from "@/lib/types";
 import ConversationGraph from "@/components/graph/ConversationGraph";
+import MessageBubble from "@/components/chat/MessageBubble";
 
 export default function SharePage() {
   const params = useParams();
@@ -13,6 +14,7 @@ export default function SharePage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<"chat" | "graph">("chat");
 
   useEffect(() => {
     async function load() {
@@ -62,14 +64,28 @@ export default function SharePage() {
         <Sparkles size={14} className="text-annotation" />
         <h1 className="text-sm font-semibold truncate">Shared: {conversation.title}</h1>
         <div className="flex-1" />
-        <a
-          href={`/graph/${conversation.id}`}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-          title="Graph (requires access)"
-        >
-          <GitFork size={13} />
-          Graph
-        </a>
+        <div className="flex items-center gap-1 rounded-md border border-border bg-card/40 p-1">
+          <button
+            onClick={() => setView("chat")}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs transition-colors ${
+              view === "chat" ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+            }`}
+            title="Chat"
+          >
+            <MessageSquare size={13} />
+            Chat
+          </button>
+          <button
+            onClick={() => setView("graph")}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs transition-colors ${
+              view === "graph" ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+            }`}
+            title="Graph"
+          >
+            <GitFork size={13} />
+            Graph
+          </button>
+        </div>
       </header>
 
       <div className="flex-1 relative">
@@ -77,8 +93,24 @@ export default function SharePage() {
           <div className="flex flex-col items-center justify-center h-full text-center">
             <p className="text-sm text-muted-foreground">No messages in this conversation.</p>
           </div>
-        ) : (
+        ) : view === "graph" ? (
           <ConversationGraph messages={messages} title={conversation.title} />
+        ) : (
+          <div className="flex-1 overflow-y-auto scrollbar-thin">
+            <div className="max-w-4xl mx-auto">
+              {messages.map((m) => (
+                <MessageBubble
+                  key={m.id}
+                  role={m.role}
+                  content={m.content}
+                  annotations={m.annotations || []}
+                  messageId={m.id}
+                  onAnnotationClick={() => {}}
+                  onTextSelect={() => {}}
+                />
+              ))}
+            </div>
+          </div>
         )}
       </div>
     </div>

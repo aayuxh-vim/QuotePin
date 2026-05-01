@@ -54,7 +54,11 @@ export default function AuthPage() {
         window.location.href = "/";
       }
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Authentication failed");
+      const raw = err instanceof Error ? err.message : "Authentication failed";
+      const msg = raw.toLowerCase().includes("email rate limit exceeded")
+        ? "Supabase is rate-limiting auth emails for this project right now. Please wait a bit and try again, or use Sign in if you already have an account."
+        : raw;
+      setMessage(msg);
     } finally {
       setLoading(false);
     }
