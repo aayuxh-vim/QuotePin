@@ -32,7 +32,7 @@ export default function Sidebar({
       <div className="h-12 px-3 flex items-center border-b border-sidebar-border">
         <button
           onClick={onNew}
-          className="w-full h-9 flex items-center gap-2 px-3 rounded-lg text-sm font-medium hover:bg-muted transition-colors"
+          className="w-full h-9 flex items-center gap-2 px-3 rounded-lg text-sm font-medium hover:bg-muted transition-colors hover:scale-[1.02] active:scale-[0.98]"
         >
           <MessageSquarePlus size={16} />
           New Chat
@@ -64,6 +64,7 @@ export default function Sidebar({
                 onDelete(c.id);
               }}
               className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-destructive/10 hover:text-destructive transition-all"
+              aria-label="Delete chat"
             >
               <Trash2 size={13} />
             </button>

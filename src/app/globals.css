@@ -36,6 +36,9 @@
   body {
     @apply bg-background text-foreground antialiased;
   }
+  button, a {
+    @apply transition-all duration-200 ease-out;
+  }
 }
 
 .dark {
@@ -75,11 +78,11 @@
 }
 
 .animate-fade-in {
-  animation: fadeIn 0.2s ease-out;
+  animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .animate-slide-up {
-  animation: slideUp 0.25s ease-out;
+  animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .markdown-body h1,

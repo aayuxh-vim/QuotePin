@@ -6,6 +6,7 @@ import { Send, Loader2, PanelLeftOpen, PanelLeftClose, AlertCircle, Sparkles, Gi
 import MessageBubble from "./MessageBubble";
 import SelectionPopup from "./SelectionPopup";
 import MobileAnnotateSheet from "./MobileAnnotateSheet";
+import ShareModal from "./ShareModal";
 import { parseDataStream } from "@/lib/stream-parser";
 import type { Annotation, AppSettings, Message as DBMessage } from "@/lib/types";
 import { localAddAnnotation, localAppendMessage, localCreateConversation } from "@/lib/local-db";
@@ -601,11 +602,11 @@ export default function ChatArea({
     <div className="flex-1 flex flex-col h-full min-w-0">
       <header className="h-12 flex items-center gap-3 px-4 border-b border-border flex-shrink-0">
         {sidebarCollapsed ? (
-          <button onClick={onToggleSidebar} className="p-1 rounded-md hover:bg-muted transition-colors">
+          <button onClick={onToggleSidebar} className="p-1 rounded-md hover:bg-muted transition-colors" aria-label="Open sidebar">
             <PanelLeftOpen size={18} />
           </button>
         ) : (
-          <button onClick={onCollapseSidebar} className="p-1 rounded-md hover:bg-muted transition-colors">
+          <button onClick={onCollapseSidebar} className="p-1 rounded-md hover:bg-muted transition-colors" aria-label="Close sidebar">
             <PanelLeftClose size={18} />
           </button>
         )}
@@ -615,6 +616,7 @@ export default function ChatArea({
           onClick={toggleTheme}
           className="p-1.5 rounded-md hover:bg-muted transition-colors text-muted-foreground"
           title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+          aria-label="Toggle theme"
         >
           {isDark ? <Sun size={16} /> : <Moon size={16} />}
         </button>
@@ -657,85 +659,18 @@ export default function ChatArea({
         </span>
       </header>
 
-      {shareOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-          onClick={() => setShareOpen(false)}
-        >
-          <div
-            className="bg-card border border-border rounded-lg shadow-2xl w-full max-w-md mx-4 animate-slide-up"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between p-4 border-b border-border">
-              <h2 className="text-lg font-semibold">Share chat</h2>
-              <button onClick={() => setShareOpen(false)} className="p-1 rounded-md hover:bg-muted transition-colors">
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="p-4 space-y-3">
-              {mode !== "cloud" ? (
-                <div className="text-sm text-muted-foreground">
-                  Sharing is available for synced chats. <a className="text-annotation hover:underline" href="/auth">Sign in</a> to enable sharing.
-                </div>
-              ) : (
-                <>
-                  {!shareEnabled ? (
-                    <button
-                      disabled={shareBusy}
-                      onClick={ensureShareEnabled}
-                      className="w-full px-3 py-2 rounded-md bg-primary text-primary-foreground text-sm disabled:opacity-50 hover:opacity-90 transition-opacity"
-                    >
-                      {shareBusy ? "Please wait..." : "Create share link"}
-                    </button>
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-2">
-                        <input
-                          readOnly
-                          value={shareUrl || ""}
-                          className="flex-1 px-3 py-2 bg-background border border-input rounded-md text-sm"
-                        />
-                        <button
-                          disabled={!shareUrl || shareBusy}
-                          onClick={copyShareLink}
-                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-sm border border-input hover:bg-muted transition-colors disabled:opacity-50"
-                          title="Copy link"
-                        >
-                          {shareStatus === "copied" ? <Check size={14} /> : <Copy size={14} />}
-                          {shareStatus === "copied" ? "Copied" : "Copy"}
-                        </button>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <a
-                          className="text-xs text-annotation hover:underline"
-                          href={shareUrl || "#"}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Open link
-                        </a>
-                        <button
-                          disabled={shareBusy}
-                          onClick={disableShare}
-                          className="text-xs text-muted-foreground hover:underline disabled:opacity-50"
-                          title="Disable sharing"
-                        >
-                          Disable link
-                        </button>
-                      </div>
-                    </>
-                  )}
-                </>
-              )}
-
-              {shareStatus === "error" && (
-                <p className="text-xs text-destructive">Something went wrong creating the share link.</p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <ShareModal
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        mode={mode}
+        shareEnabled={shareEnabled}
+        shareBusy={shareBusy}
+        shareUrl={shareUrl}
+        shareStatus={shareStatus}
+        onEnsureShareEnabled={ensureShareEnabled}
+        onCopyShareLink={copyShareLink}
+        onDisableShare={disableShare}
+      />
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin relative">
         {messages.length === 0 ? (
@@ -849,6 +784,7 @@ export default function ChatArea({
                         }}
                         className="p-1 rounded-md hover:bg-background/70 text-muted-foreground hover:text-foreground transition-colors"
                         title="Remove bookmark"
+                        aria-label="Remove bookmark"
                       >
                         <X size={12} />
                       </button>
@@ -892,7 +828,8 @@ export default function ChatArea({
           <button
             type="submit"
             disabled={!input.trim() || isBusy || !hasApiKey}
-            className="h-10 w-10 inline-flex items-center justify-center rounded-xl bg-primary text-primary-foreground disabled:opacity-30 hover:opacity-90 transition-opacity flex-shrink-0"
+            className="h-10 w-10 inline-flex items-center justify-center rounded-xl bg-primary text-primary-foreground disabled:opacity-30 hover:opacity-90 transition-opacity flex-shrink-0 hover:-translate-y-0.5 active:translate-y-0"
+            aria-label="Send message"
           >
             {isBusy ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
           </button>
