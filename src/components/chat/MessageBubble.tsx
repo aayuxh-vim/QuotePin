@@ -8,6 +8,8 @@ import type { Annotation } from "@/lib/types";
 import AnnotationBadge from "./AnnotationBadge";
 import { resolveAnnotationAnchor } from "@/lib/annotation-anchor";
 import { applyInlineAnnotations, clearInlineAnnotations } from "@/lib/inline-annotations";
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/cjs/styles/prism';
 
 interface Props {
   role: "user" | "assistant";
@@ -231,7 +233,30 @@ export default function MessageBubble({
             <p className="text-sm whitespace-pre-wrap">{content}</p>
           ) : (
             <div ref={markdownRootRef} className="markdown-body text-sm">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  code({ node, inline, className, children, ...props }: any) {
+                    const match = /language-(\w+)/.exec(className || "");
+                    return !inline && match ? (
+                      <SyntaxHighlighter
+                        {...props}
+                        style={vscDarkPlus}
+                        language={match[1]}
+                        PreTag="div"
+                      >
+                        {String(children).replace(/\n$/, "")}
+                      </SyntaxHighlighter>
+                    ) : (
+                      <code {...props} className={className}>
+                        {children}
+                      </code>
+                    );
+                  },
+                }}
+              >
+                {content}
+              </ReactMarkdown>
             </div>
           )}
           </div>

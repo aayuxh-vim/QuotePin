@@ -9,6 +9,14 @@ import { localExportAll } from "@/lib/local-db";
 import SyncPromptModal from "@/components/auth/SyncPromptModal";
 import { useAuthSync } from "@/lib/hooks/useAuthSync";
 import { useTheme } from "next-themes";
+import { z } from "zod";
+
+const settingsSchema = z.object({
+  provider: z.string().default("openai"),
+  model: z.string().default("gpt-4o-mini"),
+  apiKey: z.string().default(""),
+  theme: z.enum(["light", "dark", "system"]).default("dark"),
+});
 
 const DEFAULT_SETTINGS: AppSettings = {
   provider: "openai",
@@ -21,7 +29,13 @@ function getStoredSettings(): AppSettings {
   if (typeof window === "undefined") return DEFAULT_SETTINGS;
   try {
     const stored = localStorage.getItem("quotepin-settings");
-    if (stored) return { ...DEFAULT_SETTINGS, ...JSON.parse(stored) };
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      const result = settingsSchema.safeParse(parsed);
+      if (result.success) {
+        return { ...DEFAULT_SETTINGS, ...result.data };
+      }
+    }
   } catch { /* ignore */ }
   return DEFAULT_SETTINGS;
 }
@@ -53,8 +67,16 @@ export default function Home() {
     const s = getStoredSettings();
     setSettings(s);
     setTheme(s.theme);
-    if (window.innerWidth < 768) setSidebarCollapsed(true);
+
+    const handleResize = () => {
+      setSidebarCollapsed(window.innerWidth < 768);
+    };
+
+    handleResize();
+    window.addEventListener("resize", handleResize);
     setLoaded(true);
+
+    return () => window.removeEventListener("resize", handleResize);
   }, [setTheme]);
 
 
@@ -162,18 +184,32 @@ export default function Home() {
     fetchConversations();
   }
 
-  if (!loaded) {
+  if (!loaded || !authReady) {
     return (
-      <div className="h-screen flex items-center justify-center bg-background">
-        <div className="animate-pulse text-muted-foreground text-sm">Loading...</div>
-      </div>
-    );
-  }
-
-  if (!authReady) {
-    return (
-      <div className="h-screen flex items-center justify-center bg-background">
-        <div className="animate-pulse text-muted-foreground text-sm">Loading session...</div>
+      <div className="h-screen flex bg-background">
+        {/* Sidebar Skeleton */}
+        <div className="hidden md:flex w-64 h-full bg-sidebar border-r border-sidebar-border flex-col flex-shrink-0">
+          <div className="h-12 px-3 flex items-center border-b border-sidebar-border">
+            <div className="w-full h-9 bg-muted rounded-lg animate-pulse" />
+          </div>
+          <div className="flex-1 p-3 space-y-3">
+            <div className="h-8 bg-muted rounded-lg animate-pulse" />
+            <div className="h-8 bg-muted rounded-lg animate-pulse" />
+            <div className="h-8 bg-muted rounded-lg animate-pulse" />
+          </div>
+        </div>
+        {/* Main Content Skeleton */}
+        <div className="flex-1 flex flex-col h-full">
+          <header className="h-12 flex items-center gap-3 px-4 border-b border-border flex-shrink-0">
+            <div className="w-6 h-6 bg-muted rounded-md animate-pulse" />
+            <div className="w-24 h-4 bg-muted rounded animate-pulse" />
+            <div className="flex-1" />
+            <div className="w-8 h-8 bg-muted rounded-md animate-pulse" />
+          </header>
+          <div className="flex-1 flex items-center justify-center">
+            <div className="w-14 h-14 rounded-2xl bg-muted animate-pulse" />
+          </div>
+        </div>
       </div>
     );
   }
