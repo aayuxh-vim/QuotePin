@@ -1,6 +1,7 @@
 # QuotePin — AI Chatbot with Inline Context Popups
 
 QuotePin is a chat interface that lets you highlight any word or phrase in an AI response and ask about it in a small popup — without cluttering the main conversation. The popup answer is saved as an embedded annotation you can revisit later. A conversation graph view (inspired by Obsidian) visualizes the relationship between messages and annotations.
+
 https://github.com/user-attachments/assets/ab8c785a-7116-4bd7-9f4a-bf429f308299
 
 
